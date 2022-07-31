@@ -1,0 +1,210 @@
+---
+title: "Vine_longProj"
+author: "Veronica Mandelli"
+date: "10/20/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# VINELAND LONGITUDINAL PROJECT
+ 
+ this is the logitudinal project for vineland cluster
+
+```{r,message=FALSE,warning=FALSE}
+#load packages
+library(easypackages)
+library(fpc)
+libraries("here","ggplot2","psych","gplots","ramify",'reshape2')
+code_path = here()
+source(file.path(code_path,"spaghettiPlot.R"))
+```
+
+```{r,message=FALSE,warning=FALSE}
+#load data
+data <- read.csv('/Users/vmandelli/OneDrive - Fondazione Istituto Italiano Tecnologia/vineland_stratification/out_new/All_UCDS_Subjects_T1asinput.csv')
+colnames(data)
+
+```
+
+```{r,message=FALSE,warning=FALSE}
+# prepare data
+# column with subject_id should be called subjectId
+
+colnames(data)[which(names(data) == "subjectid")] <- "subjectId"
+# selct only time point one and two
+data = subset(data, subset = time %in% c(1, 2))
+row.names(data) <- NULL
+#age should be round
+data$vine_agemo = round(data$vine_agemo)
+data$mullen_ageMo = round(data$mullen_ageMo)
+#cluster calumn shoudl be a factor
+#data[, c( 4,5, 6)] <- sapply(data[, c( 4,5, 6)], as.factor)
+data$cluster <- as.factor(data$cluster)
+data$clust_dom <- as.factor(data$clust_dom)
+data$clust_subdom <- as.factor(data$clust_subdom)
+```
+
+### Spaghetti plot
+i am using Mike's function to produce the spaghetti plot
+```{r,message=FALSE,warning=FALSE}
+var_list= c(
+ #'vine_ComRecep_Raw',
+# 'vine_ComRecep_Adap',
+# 'vine_ComRecep_AgeEq_mo',
+# 'vine_ComExprv_Raw',
+# 'vine_ComExprv_Adap',
+# 'vine_ComExprv_AgeEq_mo',
+# 'vine_ComWritn_Raw',
+# 'vine_ComWritn_Adap',
+# 'vine_ComWritn_AgeEq_mo',
+# 'vine_ComTotal_DomStd',
+# 'vine_ComTotal_Adap',
+# 'vine_DlyPers_Raw',
+# 'vine_DlyPers_Adap',
+# 'vine_DlyPers_AgeEq_mo',
+# 'vine_DlyDmstc_Raw',
+# 'vine_DlyDmstc_Adap',
+# 'vine_DlyDmstc_AgeEq_mo',
+# 'vine_DlyCmty_Raw',
+# 'vine_DlyCmty_Adap',
+# 'vine_DlyCmty_AgeEq_mo',
+# 'vine_DlyTotal_DomStd',
+# 'vine_DlyTotal_Adap',
+# 'vine_SocIntPers_Raw',
+# 'vine_SocIntPers_Adap',
+# 'vine_SocIntPers_AgeEq_mo',
+# 'vine_SocLeisr_Raw',
+# 'vine_SocLeisr_Adap',
+# 'vine_SocLeisr_AgeEq_mo',
+# 'vine_SocCope_Raw',
+# 'vine_SocCope_Adap',
+# 'vine_SocCope_AgeEq_mo',
+# 'vine_SocTotal_DomStd',
+# 'vine_SocTotal_Adap',
+# 'vine_MtrGross_Raw',
+# 'vine_MtrGross_Adap',
+# 'vine_MtrGross_AgeEq_mo',
+# 'vine_MtrFine_Raw',
+# 'vine_MtrFine_Adap',
+# 'vine_MtrFine_AgeEq_mo',
+# 'vine_MtrTotal_DomStd',
+# 'vine_MtrTotal_Adap',
+# 'vine_DomStdTotal',
+# 'vine_AdapBehav_DomStd',
+# #'ados_ados_subjectid',
+# #'ados_ageMo',
+# #'ados_FMID',
+# 'ados_Module',
+# 'ados_CoSoTot',
+# 'ados_RRTot',
+# 'ados_CoSoTotRRTot',
+# #'mullen_subjectid',
+# #'mullen_p2f2',
+# #'mullen_ageMo',
+ 'mullen_VRT',
+# 'mullen_VR_Raw',
+# 'mullen_VR_AgeEq',
+ 'mullen_FMT',
+#'mullen_FM_Raw',
+# 'mullen_FM_AgeEq',
+ 'mullen_RLT',
+#  'mullen_RL_Raw',
+# 'mullen_RL_AgeEq',
+ 'mullen_ELT',
+# 'mullen_EL_Raw',
+# 'mullen_EL_AgeEq',
+'mullen_ELC_Std'
+##           , 'time'
+ )
+```
+
+```{r}
+table(data$clust_dom)
+
+756/(756+96+326)
+96/(756+96+326)
+326/(756+96+326)
+
+```
+
+```{r,message=FALSE,warning=FALSE}
+
+#  # INPUT ARGUMENTS
+    # df = data frame to process
+    # x_var = string denoting variable to plot on x-axis
+    # y_var = string denoting variable to plot on y-axis
+    # subgrp_var = string denoting variable that has subgroup labels
+    # xLabel = label to put on x-axis
+    # yLabel = label to put on y-axis
+    # fname2save = file path and filename if you want to save plot
+    # plot_dots = set to TRUE to plot individual dots
+    # plot_lines = set to TRUE to plot individual lines
+    # ci_band = set to true if you want to plot confidence bands
+    # pi_band = set to true if you want to plot prediction bands
+    # dot_alpha = alpha setting for plotting dots
+    # line_alpha = alpha setting for plotting lines
+    # band_alpha = alpha setting for plotting bands
+    # xLimits = set limits on x-axis
+    # yLimits = set limits on y-axis
+    # standardize = set to TRUE if you want to z-score data before modeling
+#data$mullen_RL_Raw
+#pdf("plots.pdf")
+#for (i in 1:3) {
+#    print(plot_list[[i]])
+#}
+#dev.off()
+data2use = data[data$clust_dom=="3" | data$clust_dom=="1" |data$clust_dom=="2",]
+data2use$clust_dom <- factor( data2use$clust_dom,levels = c("1", "3","2"));
+for (i in 1:length(var_list)) {
+    col2use =var_list[i]
+    spagh = spaghettiPlot(df=data2use, 
+                          x_var='mullen_ageMo', 
+                          y_var=col2use, 
+                          subgrp_var='clust_dom', ### change here the type of clustering solution you need : 'cluster', 'clust_dom', 'clust_subdom'
+                          xLabel = 'age', 
+                          yLabel =col2use, 
+                          modelType = "linear",
+                          fname2save = NULL, plot_dots = TRUE, plot_lines = TRUE,
+                          ci_band = TRUE, pi_band = FALSE, dot_alpha = 1/10, line_alpha = 1/10,
+                          band_alpha = 1/2, xLimits = c(-5, 60), yLimits = NULL, standardize = FALSE)
+
+    print(spagh$p)
+    print(anova(spagh$lme_model))
+    print(col2use)
+    #mod1 <- aov(data2use[ ,col2use]~clust_dom*vine_agemo, data=data2use)
+    #print(summary(mod1))
+    #mod2 <-aov(data2use[ ,col2use]~clust_dom+vine_agemo, data=data2use)
+    #print(summary(mod2))
+    #print(anova(mod1,mod2))
+    
+    #print(pairwise.t.test(data2use[,col2use],data2use[,'clust_dom'] , p.adj = "bonf"))
+}
+
+```
+
+
+
+```{r}
+# produce the same spaghetti plot on other dignostic groups
+data2use = data[data$clust_dom=="DD" | data$clust_dom=="LD" |data$clust_dom=="MD"|data$clust_dom=="TD"|data$clust_dom=="syb",]
+data2use$clust_dom <- factor( data2use$clust_dom,levels = c("DD", "LD","MD","syb", "TD"));
+for (i in 1:length(var_list)) {
+    col2use =var_list[i]
+    spagh = spaghettiPlot(df=data2use, 
+                          x_var='mullen_ageMo', 
+                          y_var=col2use, 
+                          subgrp_var='clust_dom', ### change here the type of clustering solution you need : 'cluster', 'clust_dom', 'clust_subdom'
+                          xLabel = 'age', 
+                          yLabel =col2use, 
+                          modelType = "linear",
+                          fname2save = NULL, plot_dots = TRUE, plot_lines = TRUE,
+                          ci_band = TRUE, pi_band = FALSE, dot_alpha = 1/10, line_alpha = 1/10,
+                          band_alpha = 1/2, xLimits = c(-5, 60), yLimits = NULL, standardize = FALSE)
+
+    print(spagh$p)
+    print(anova(spagh$lme_model))
+}
+```
+

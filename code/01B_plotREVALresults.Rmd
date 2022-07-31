@@ -1,0 +1,522 @@
+---
+title: "01B plot REVAL results"
+author: "Veronica Mandelli"
+output:
+  html_document:
+    df_print: paged
+---
+# VISUALIZE REVAL RESULTS
+this script analyzes the results from reval clustering on NDA dataset. 
+It help visualize: stratification model reproducibility and clusters'characteristics 
+```{r,message=FALSE,warning=FALSE}
+# load libraries
+library(gridExtra)
+library(ggplot2)
+library(reshape2)
+library(wesanderson)
+library(MetBrewer)
+#library(here)
+
+# set paths
+work_dir = '/Users/vmandelli/OneDrive - Fondazione Istituto Italiano Tecnologia/vineland_proj_new'#here()
+
+plot_path = file.path(work_dir,'plots','FINAL_correct')
+data_path = file.path(work_dir,'results','FINAL_correct')
+results_path = file.path(work_dir,'results','FINAL_correct')
+code_path = file.path(work_dir,'code','R')
+source(file.path(code_path,"cohens_d.R")) 
+```
+
+### chose here if you want to run the following analysis on train or test set
+* "tr" = trainset
+* "ts" = testset
+```{r,warning=FALSE,error=FALSE }
+# INSERT HERE IF TRAIN OR TEST
+datafile = 'imputed_data_P1_ts.csv'
+db_type =  "ts"
+data <- read.csv(file.path(data_path,datafile))
+
+#check if there are duplicated in the subjects (some longitudinal??)
+length(data$subjectkey)-length(unique(data$subjectkey)) # if =0 ok
+
+
+```
+
+## rename the clusters based on levels
+cluster_domain are provided by reval as numeric lables. We then convert them to a verbal/descriptive label:  
+
+* 2= high 
+* 3= med 
+* 1 = low
+```{r,warning=FALSE,error=FALSE }
+for (i in (1:length(data$cluster_domain))) {
+  if (data[i, 'cluster_domain'] == '2'){
+    data[i,'clust_dom'] = "high"
+  }
+  else if (data[i, 'cluster_domain'] == '3'){
+    data[i,'clust_dom'] = "med"
+  }
+  else if (data[i, 'cluster_domain'] == '1'){
+    data[i,'clust_dom'] = "low"
+  }
+}
+
+# make the cluster column as a factor
+data$clust_dom = as.factor(data$clust_dom)
+data$clust_dom <- factor( data$clust_dom,levels = c('high','med','low'));
+```
+
+## produce scatter plot for the input features - VABS domain standard scores
+```{r,message=FALSE, warning=FALSE}
+# define colors
+pink = c('#980043',"#DD1C77","#C994C7","#E7E1Ef")
+blue = c('#08519c',"#3182bd","#9ecae1","#deebf7")
+green = c('#006d2c','#31a354','#a1d99b','#e5f5e0')
+yellow = c('#ff9900','#ffcc33','#ffff00','#ffff99')
+col_list = list(pink,blue,green,yellow)
+
+#color = c("#FF9933","#3399CC","#009900","#CC0099") # old color
+
+# set some useful lists of variables
+dom_list = c('high','med','low')
+var_list = c('communicationdomain_totalb', 'livingskillsdomain_totalb', 'socializationdomain_totalb','motorskillsdomain_totalb')
+title_list = c('communication', 'livingskills', 'socialization','motorskills')
+
+# initialize some other useful variables
+title = title 
+data2use=data
+plt <- list()
+
+# looping on VABS variables to 
+for (j in (1:4)){
+  #define varible, color to use and titels to the plots
+  var2use = var_list[j]
+  col_name = col_list[j]
+  color = col_list[[j]] 
+  title = title_list[j]
+  
+  p = ggplot(data = data2use, 
+             aes_string(x = 'clust_dom',
+                        y = var2use,
+                        color='clust_dom')) 
+  p = p + geom_jitter() + geom_boxplot(fill = NA, colour = "#000000", outlier.shape = NA)
+  p = p + scale_colour_manual(values = color)
+  p = p + guides(colour = FALSE)
+  p = p + xlab("") + ylab("")
+  p = p + ggtitle(title_list[j]) 
+  p = p + theme_bw() 
+  p = p + theme(plot.title = element_text(hjust = 0.5))
+  ## changed here
+  p = p + theme(axis.text.x = element_text(face="bold", size=10))
+  p = p + theme(axis.text.y = element_text(face="bold", size=10))
+  p = p + scale_y_continuous( limits=c(10, 120))
+  p = p + theme(axis.text=element_text(size=10),
+                axis.title=element_text(size=8,face="bold"))
+  
+  print(p)
+  # evantually save the plot
+  #ggsave(paste(plot_path,'/',db_type,'_total_',var2use,".pdf", sep=""))
+  plt[[j]] = p
+}
+
+# merge the plots form the same variable
+# evantually save the plot
+#pdf(paste(plot_path,'/',db_type,'_summary_colorixmike.pdf', sep=""))
+g = grid.arrange(
+  plt[[1]],
+  plt[[2]],
+  plt[[3]],
+  plt[[4]],
+  nrow = 1)
+#dev.off()
+
+lay =rbind(c(1,2,3,4),
+           c(1,2,3,4),
+           c(5,6,7,8),
+           c(5,6,7,8)
+           
+) 
+
+# evantually save the plot
+#pdf(paste(plot_path,'/',db_type,'_sum_colorixmike.pdf', sep=""))  
+
+# # merge all the plot into a single figure
+# g = grid.arrange(
+#   plt[[1]],
+#   plt[[2]],
+#   plt[[3]],
+#   plt[[4]],
+#   
+#   layout_matrix = lay)
+#dev.off()
+```
+
+## plot heatmap of Cohen's d
+```{r, warning=FALSE, message=FALSE}
+heat = list()
+
+for (i in (1:4) ){
+  var2use = var_list[i]
+  print(var2use)
+  color = col_list[[i]]
+  title = title_list[i]
+  
+  vector <- c()
+  index <- 0
+  group_order <- c("high", "med","low")
+  # compute cohens'd
+  for (A in group_order){
+    for (B in group_order){
+      index <- index + 1
+      C_d <- cohens_d(data2use[data2use$clust_dom==A,var2use],
+                      data2use[data2use$clust_dom==B,var2use], 
+                      SIGN=FALSE)
+      vector[index] <- round(C_d,digits=2)
+    }}
+  
+  m = matrix(vector,3)
+  print(m)
+  
+  ggheatmap = ggplot(melt(m), aes(Var1,Var2, fill=value)) + 
+    scale_x_discrete(name="Vabs_clus",limits=c(1,2,3),labels=c("low", "med","high")) + 
+    scale_y_discrete(name="Vabs_clus",limits =c(1,2,3),labels=c("low", "med","high")) + 
+    geom_raster() +
+    scale_fill_gradient2(low = color[4], high = color[1],  limit = c(0,4), guide = "colourbar",name=NULL) +
+    theme_minimal()#+
+  theme(axis.text.x = element_blank())#element_text(angle = 45, vjust = 1, 
+  #size = 14, hjust = 1)) +
+  #coord_fixed()
+  
+  ggheatmap = ggheatmap +
+    geom_text(aes(Var1, Var2, label = value), color = "black", size = 25) +
+    theme(
+      axis.title.x = element_blank(),
+      axis.title.y = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.border = element_blank(),
+      panel.background = element_blank(),
+      axis.ticks = element_blank())+
+    guides(fill = guide_colorbar(barwidth = 1, barheight = 10,
+                                 title.position = "top", title.hjust = 0, title="d"))
+  
+  # show here the heatmaps to check them
+  #print(ggheatmap)
+  # eventually save them on a pdf file
+  # ggsave(paste(plot_path,'/',db_type,'_heatmap_',var2use,".pdf", sep=""),width = 10,height = 9)
+  heat[[i]]=ggheatmap
+}
+```
+
+### plot REVAL stability plot
+```{r,warning=FALSE,error=FALSE}
+# read reval output
+reval_val = read.csv(file.path(data_path,"val_metric_P14soggettti.csv"))
+reval_val$cat = 'validation'
+reval_tr = read.csv(file.path(data_path,"train_metric_P14soggettti.csv"))
+reval_tr$cat = 'train'
+
+# plot them
+mat = rbind(reval_tr,reval_val)
+colors = c("#cc0000","#000099")
+# spaghetti plot
+gg.spaghetti_x<-ggplot(mat, aes (x = k, y =value , group = cat, color = cat))
+gg.spaghetti_x <-gg.spaghetti_x +geom_line() + geom_point()   +
+  geom_errorbar(aes(ymin= value - CI, ymax= value + CI), width = 0.1, size = 0.5) + 
+  theme(axis.text.x = element_text(size=10), axis.text.y = element_text(size=10)) +
+  scale_color_manual(values=colors)+theme_classic()
+
+
+# ggsave(file.path(plot_path,'REVAL_stability.png'),width = 6,height = 4)
+gg.spaghetti_x
+```
+
+### sigclust cluster existence
+```{r}
+## check clusters existence
+library(sigclust)
+library(dplyr)
+library(ggplot2)
+library(wesanderson)
+
+# VABS data
+data <- read.csv("~/OneDrive - Fondazione Istituto Italiano Tecnologia/vineland_proj_new/results/FINAL_correct/ndar_withumap.csv", header=TRUE)
+color =  wes_palette("IsleofDogs1")
+# set option
+nreps_sim = 10000
+nreps_sigclust_repeat = 10000
+
+data$cluster_domain =factor(data$cluster_domain, levels = c("2",'3','1'))
+# run sigclust on train
+data2use = data %>% filter(TR_TS=="tr") %>% select(UMAP_1,UMAP_2,cluster_domain)
+rseo_sigclust_res_train = sigclust(data2use[,c("UMAP_1","UMAP_2")],
+                             nsim = nreps_sim, nrep = nreps_sigclust_repeat,
+                             labflag = 1, 
+                             label = data2use[,"cluster_domain"],
+                             icovest=2)
+p_train = ggplot(data=data2use, aes(x=UMAP_1,y=UMAP_2)) +
+    geom_density_2d_filled() + 
+    geom_point(data=data2use, aes(colour=cluster_domain), alpha = 0.5,size = 0.5)+ggtitle('train')+ 
+    scale_y_continuous( limits=c(-5, 1)) + scale_x_continuous( limits=c(-5,8))+ scale_colour_manual(values = color)
+p_train
+#rseo_sigclust_res_train
+p_val_train = (sum(rseo_sigclust_res_train@simcindex<=rseo_sigclust_res_train@xcindex)+1)/(nreps_sim+1)
+print(p_val_train)
+
+# run sigclust on test
+data2use = data %>% filter(TR_TS=="ts") %>% select(UMAP_1,UMAP_2,cluster_domain)
+rseo_sigclust_res_test = sigclust(data2use[,c("UMAP_1","UMAP_2")],
+                             nsim = nreps_sim, nrep = nreps_sigclust_repeat,
+                             labflag = 1, 
+                             label = data2use[,"cluster_domain"],
+                             icovest=2)
+p_test = ggplot(data=data2use, aes(x=UMAP_1,y=UMAP_2)) +
+    geom_density_2d_filled() + 
+    geom_point(data=data2use, aes(colour=cluster_domain), alpha = 0.5,size = 0.5)+ggtitle('validation')+ 
+    scale_y_continuous( limits=c(-5, 1)) + scale_x_continuous( limits=c(-5, 8))+ scale_colour_manual(values = color)
+p_test
+#rseo_sigclust_res_test
+p_val_test = (sum(rseo_sigclust_res_test@simcindex<=rseo_sigclust_res_test@xcindex)+1)/(nreps_sim+1)
+print(p_val_test)
+
+library(ggpubr)
+umap_tr_ts = ggarrange(p_train, p_test, nrow=1, common.legend = TRUE, legend="bottom")
+umap_tr_ts
+plot_path = '~/OneDrive - Fondazione Istituto Italiano Tecnologia/vineland_proj_new/plots/FINAL_correct'
+#ggsave(file.path(plot_path,'Clusters_significance.png'), umap_tr_ts, width = 7 ,height = 4)
+
+
+
+```
+
+
+
+### other information about the database NDA useful to be inserted in the paper
+plot total database age-sex info - from now train and test will be merged
+```{r, warning=FALSE,error=FALSE, include=FALSE}
+#load train
+datafile = 'imputed_data_P1_tr.csv'
+data_tr <- read.csv(file.path(data_path,datafile))
+#load test
+datafile = 'imputed_data_P1_ts.csv'
+data_ts <- read.csv(file.path(data_path,datafile))
+#merge them
+col2use=c("subjectkey","sex",'interview_age')
+data = rbind(data_tr,data_ts[,1:11])
+data_age = rbind(data_tr[,col2use],data_ts[,col2use])
+
+data2plot = data_age
+data2plot$sex <- factor( data2plot$sex,levels = c("M","F"))
+
+#plot age sample distribution
+p<-ggplot(data2plot, aes(x=interview_age, fill=sex, color=sex)) +
+  geom_histogram(position="identity", alpha=0.4,bins = 30)+
+  geom_vline(aes(xintercept=mean(interview_age)), color="blue",linetype="dashed")+
+  scale_color_manual(values=c("#99ccff","#ffcccc"))+
+  scale_fill_manual(values=c("#99ccff","#ffcccc"))+
+  scale_x_continuous( limits=c(12,72),breaks=c(12, 24,36,48,60,72))+
+  scale_y_continuous( limits=c(0,100),breaks=c(0,20,40,60,80,100))+
+  labs(title="NDAR database",x="age (months)", y = "sample size")+
+  theme_classic()+coord_fixed(ratio = 1)
+
+p
+ggsave(file.path(plot_path,'NDAR_samplesize_100.png'),width = 6,height = 4)
+
+#change cluster label in hihg med and low
+for (i in (1:length(data$cluster_domain))) {
+  if (data[i, 'cluster_domain'] == '2'){
+    data[i,'clust_dom'] = "high"
+  }
+  else if (data[i, 'cluster_domain'] == '3'){
+    data[i,'clust_dom'] = "med"
+  }
+  else if (data[i, 'cluster_domain'] == '1'){
+    data[i,'clust_dom'] = "low"
+  }
+}
+data$clust_dom <- factor( data$clust_dom,levels = c("high","med","low"))
+
+# save some demographics tables
+sex_NDAR_table = as.data.frame(table(data2plot$sex))
+#write.csv(sex_NDAR_table,file.path(results_path,'sex_NDAR_table.csv'))
+age_NDAR_table =as.data.frame(as.matrix(summary(data2plot$interview_age)))
+#write.csv(age_NDAR_table,file.path(results_path,'age_NDAR_table.csv'))
+cluster_distributioon = table(data$cluster_domain)
+#write.csv(cluster_distributioon,file.path(results_path,'cluster_distribution_NDAR.csv'))
+
+# save NDA subjectkey
+sub_ids_nda = data[,c("subjectkey","collection_id")] #as.data.frame(unique(data$subjectkey))
+write.csv(sub_ids_nda,file.path(results_path,'sub_ids_collection_id_nda.csv'))
+
+# total sample size 
+table(data$clust_dom)
+```
+
+plot age and sex distribution divided by clusters
+```{r, warning=FALSE,error=FALSE, include=FALSE}
+color = c("#FF9933","#3399CC","#009900")
+### old color "#FF6666","#99CC66","#99FFFF","#E7E1Ef")
+
+data2plot = data
+# set sex as a factor
+
+data2plot$sex <- factor( data2plot$sex,levels = c("F","M"))
+# age plot
+p = ggplot(data =data2plot ,aes_string(x = 'clust_dom', y ='interview_age', color='clust_dom') )
+p = p + geom_jitter() + geom_boxplot(fill = NA, colour = "#000000", outlier.shape = NA)
+p = p + scale_colour_manual(values = color)
+p = p + guides(colour = FALSE)
+p = p + scale_colour_manual(values = color)
+p = p + xlab("") + ylab('months')
+p = p + ggtitle('age')
+p = p + theme_bw()
+p = p + theme(plot.title = element_text(size = 10, face = "bold",hjust = 0.5))
+p = p + theme(axis.text.x = element_text(face="bold", size=10))
+p = p + theme(axis.text.y = element_text(face="bold", size=10))
+p = p + scale_y_continuous( limits=c(0, 72))
+#ggsave(paste(plot_path,'/NDAR',db_type,'_ageT1.pdf', sep=""))
+
+# sex plot
+sex =ggplot(na.omit(subset(data2plot, select = c(sex,clust_dom))), aes(x= sex,  group=clust_dom)) + 
+  geom_bar(aes(y = ..prop.., fill = factor(..x..)), stat="count") +
+  geom_text(aes( label = scales::percent(..prop..),
+                 y= ..prop.. ), stat= "count", vjust = -.5,size=2) +
+  labs(y = "Percent",fill = "gender") +
+  facet_grid(~clust_dom) +
+  scale_y_continuous(labels = scales::percent)+ ylim(0,0.87)
+#sex = sex + ggtitle(paste("NDAR_",db_type,"VABS-cluster",sep=''))
+sex = sex + ggtitle('Gender distribution')
+sex = sex  + theme_bw()
+sex = sex  + theme(plot.title = element_text(size = 10, face = "bold",hjust = 0.5))
+sex = sex  + theme(axis.text.x = element_text(face="bold", size=10))
+sex = sex  + theme(axis.text.y = element_text(face="bold", size=10))
+sex
+#ggsave(file.path(plot_path,paste('NDAR',db_type,'_sex.pdf', sep="")))
+
+lay =rbind(c(1,1,2,2,2,2)
+)
+
+# merge age and sex in a unique figure
+#pdf(paste(plot_path,'/',db_type,'_age_sex.pdf', sep=""),width = 5, height = 3.5 )
+new_grid = grid.arrange(
+  p,sex,
+  layout_matrix = lay)
+#dev.off()
+ggsave(file.path(plot_path,'age_sex_NDA_trts.png'),new_grid)
+
+
+# check if there is difference in the percentage on F/M in the clustersgender_table
+gender_table =  table(data2plot$sex, data2plot$clust_dom)
+chisq <- chisq.test(t(gender_table))
+print(chisq)
+```
+### summary table and difference in age
+```{r, warning=FALSE,error=FALSE, include=FALSE}
+
+# pairwise
+sub_1_poss = c('high','high','med')
+sub_2_poss = c('med','low','low')
+age_table_sum =  as.data.frame(matrix(nrow=3,ncol=7))
+colnames(age_table_sum) = c( 'sub1','sub2','tstat','df','pvalue',"mean_sub1","mean_sub2")
+for (d in 1:3){
+  x= subset(data,data$clust_dom ==sub_1_poss[d])
+  y= subset(data,data$clust_dom ==sub_2_poss[d])
+  t_res <- t.test(x[,"interview_age"],y[,"interview_age"])
+  print(t_res)
+  age_table_sum[d,'sub1']=sub_1_poss[d]
+  age_table_sum[d,'sub2']=sub_2_poss[d]
+  age_table_sum[d,'tstat']=t_res$statistic
+  age_table_sum[d,'df']=t_res$parameter
+  age_table_sum[d,'pvalue']=t_res$p.value
+  age_table_sum[d,'mean_sub1']=t_res$estimate[1]
+  age_table_sum[d,'mean_sub2']=t_res$estimate[2]
+}
+write.csv(age_table_sum,file.path(results_path,'NDA_age_diff_tab_young.csv'))
+
+summary_age_young = as.data.frame(matrix(nrow=4, ncol = 5))
+colnames(summary_age_young) = c("mean","sd","median","max","min")
+rownames(summary_age_young) = c('total','high','med','low')
+for (sub in c('high','med','low')){
+  summary_age_young[sub,'mean'] = mean(data[data$clust_dom==sub,'interview_age'])
+  summary_age_young[sub,'sd'] = sd(data[data$clust_dom==sub,'interview_age'])
+  summary_age_young[sub,'median'] = median(data[data$clust_dom==sub,'interview_age'])
+  summary_age_young[sub,'max'] = max(data[data$clust_dom==sub,'interview_age'])
+  summary_age_young[sub,'min'] = min(data[data$clust_dom==sub,'interview_age'])
+}
+
+  summary_age_young['total','mean'] = mean(data$interview_age)
+  summary_age_young['total','sd'] = sd(data$interview_age)
+  summary_age_young['total','median'] = median(data$interview_age)
+  summary_age_young['total','max'] = max(data$interview_age)
+  summary_age_young['total','min'] = min(data$interview_age)
+  
+write.csv(summary_age_young,file.path(results_path,'NDA_summary_age_young.csv')) 
+
+```
+
+
+other important information as the proportion of VABS edtion used and the % of the collection IDs of NDA studies
+```{r, warning=FALSE,error=FALSE, include=FALSE}
+# plot some needed features/tables
+#load edition VABS table 
+datafile = 'edition_subid.csv'
+edition <- read.csv(file.path(data_path,datafile))
+# merge
+data_ = merge(data, edition[,c("edition","subjectkey","interview_age","collection_id")], by = c("subjectkey", "interview_age"), all = TRUE,all.x = TRUE,all.y = FALSE)
+# remove duplicates
+data_new= data_[!duplicated(data_), ]
+
+# table for edition of VABS used
+tb_ed = table(data_new$edition)
+tb_ed
+write.csv(tb_ed,file.path(results_path,'edition_vabs_NDAR.csv'))
+
+dia_tab = table(data_new$phenotype)
+dia_tab
+write.csv(dia_tab,file.path(results_path,'diagnosis_vabs_NDAR.csv'))
+ee = list(unique(data$phenotype))
+write.csv(ee[[1]],file.path(results_path,'diagnosis_vabs_NDAR.txt'))
+for (i in 1:length(data_new$subjectkey)){
+  if (data_new[i,'interview_age']<6) {
+    data_new[i,'age_bin'] = "0-6"
+  }else if(data_new[i,'interview_age']>=6 & data_new[i,'interview_age']<=12 ) {
+    data_new[i,'age_bin'] = "6-12"
+  }else if(data_new[i,'interview_age']>=13 & data_new[i,'interview_age']<=18 ) {
+    data_new[i,'age_bin'] = "13-18"
+  }else if(data_new[i,'interview_age']>=19 & data_new[i,'interview_age']<=24 ) {
+    data_new[i,'age_bin'] = "19-24"
+  }else if(data_new[i,'interview_age']>=25 & data_new[i,'interview_age']<=30 ) {
+    data_new[i,'age_bin'] = "25-30"
+  }else if(data_new[i,'interview_age']>=31 & data_new[i,'interview_age']<=36 ) {
+    data_new[i,'age_bin'] = "31-36"
+  }else if(data_new[i,'interview_age']>=37 & data_new[i,'interview_age']<=42 ) {
+    data_new[i,'age_bin'] = "37-42"
+  }else if(data_new[i,'interview_age']>=43 & data_new[i,'interview_age']<=48 ) {
+    data_new[i,'age_bin'] = "43-48"
+  }else if(data_new[i,'interview_age']>=49 & data_new[i,'interview_age']<=54 ) {
+    data_new[i,'age_bin'] = "49-54"
+  }else if(data_new[i,'interview_age']>=55 & data_new[i,'interview_age']<=60 ) {
+    data_new[i,'age_bin'] = "55-60"
+  }else if(data_new[i,'interview_age']>=61 & data_new[i,'interview_age']<=66 ) {
+    data_new[i,'age_bin'] = "61-66"
+  }else if(data_new[i,'interview_age']>=67 & data_new[i,'interview_age']<=72 ) {
+    data_new[i,'age_bin'] = "67-72"
+  }}
+
+age_tb = table(data_new$age_bin)
+write.csv(t(age_tb),file.path(results_path,'age_bind_vabs_NDAR.csv'))
+mean(data_new$interview_age)
+sd(data_new$interview_age)
+
+# collection ids %
+datafile = 'collection_ids.csv'
+collection_ids <- read.csv(file.path(data_path,datafile),sep = ';')
+collection_ids =  as.data.frame(collection_ids[!duplicated(collection_ids), ])
+
+col_tab = as.data.frame(table(data_new$collection_id.x)/length(data_new$collection_id.x)*100)
+colnames(col_tab) = c('collection_id',"percentage")
+col_tab$percentage=round(col_tab$percentage,digits = 2)
+
+collection = as.data.frame(merge(col_tab,collection_ids , by = "collection_id", all = TRUE,all.x = TRUE,all.y = FALSE))
+#write.csv(collection,file.path(results_path,'collection_vabs_NDAR.csv'))
+
+```

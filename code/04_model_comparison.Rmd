@@ -1,0 +1,360 @@
+---
+title: "04 models comparisons REVAL vs VABSnorms"
+author: "Veronica Mandelli"
+output: html_document
+---
+# VABS NORMS STRATIFICATION 
+in this script we create subtype of autistic adaptive behavior by looking at the VABS total score and compare it with the norms from the VABS manual. 
+<br>
+* TOTAL VABS>=85 --> the child performs as a neurtypical aged matched peer (high)
+* TOTAL VABS< 85 and >=70 --> the child perfroms one standard deviation below the norm (med)
+* TOTAL VABS<70 --> the child performs 2 standard deviation below the norm (low)
+
+### load packages, functions, data and define paths
+```{r,echo=FALSE, message=FALSE,warning=FALSE}
+#load packages 
+library(easypackages)
+libraries('here','ggplot2','gplots','reshape2','gridExtra','ggalluvial','nlme','emmeans')
+
+# define paths
+work_dir = '/Users/vmandelli/OneDrive - Fondazione Istituto Italiano Tecnologia/vineland_proj_new'
+code_path = file.path(work_dir,'code','R')
+#uscd_data_path = file.path(work_dir,'results','prova4soggetti')
+uscd_data_path = file.path(work_dir,'results','FINAL_correct')
+ndar_data_path = file.path(work_dir,'results','FINAL_correct')
+result_path = file.path(work_dir,'results','FINAL_correct')
+plot_path = file.path(work_dir,'plots','FINAL_correct')
+
+#load some fucntions
+source(file.path(code_path,"spaghettiPlot_new.R"))
+source(file.path(code_path,"spaghettiPlot.R"))
+source(file.path(code_path,"spaghettiPlot2_nodataset.R"))
+source(file.path(code_path,"alluvial.R"))
+
+#load data
+data <- read.csv(file.path(uscd_data_path,'ucsd_long_allSubj_clusters.csv'))
+```
+
+### reformat data 
+```{r,message=FALSE,warning=FALSE, error=FALSE}
+# column with subject_id should be called subjectId
+colnames(data)[which(names(data) == "subjectid")] <- "subjectId"
+
+# selct only subjects that have a cluster/dignosis (exclude those ASD with t1>72, or that do not have longitudinal data)
+data$cluster[data$cluster==''] <- NA 
+data = data[!is.na(data$cluster),]
+
+# rename row 
+row.names(data) <- NULL
+
+# age should be round
+data$vine_agemo = round(data$vine_agemo)
+data$mullen_ageMo = round(data$mullen_ageMo)
+
+# cluster column should be a factor
+# remane in a more comprehansible format
+# for domain
+for (i in (1:length(data$cluster))) {
+  if (data[i, 'cluster'] == '2.0'){
+    data[i,'cluster'] = "high"
+  }
+  else if (data[i, 'cluster'] == '3.0'){
+    data[i,'cluster'] = "med"
+  }
+  else if (data[i, 'cluster'] == '1.0'){
+    data[i,'cluster'] = "low"
+  }
+}
+data$cluster <- as.factor(data$cluster)
+
+# correct some "0"
+data[data == 0] <- NA   
+
+# define variables to use
+var2use = c('mullen_VR_AgeEq','mullen_FM_AgeEq','mullen_RL_AgeEq','mullen_EL_AgeEq')
+```
+
+### compute clusters from Vineland TD norms
+```{r,message=FALSE,warning=FALSE, error= FALSE}
+# prepare data only from ASD
+data4normativemodel = data[data$cluster=="high" | data$cluster=="med" |data$cluster=="low",]
+data4normativemodel$cluster <- factor( data4normativemodel$cluster,levels = c("high","med","low"));
+
+# mask=rowSums(is.na(data4normativemodel[,var2use]))==0
+# data4normativemodel = as.data.frame(data4normativemodel[mask,])
+
+subjetc_list = unique(data4normativemodel$subjectId)
+
+# define norma mean and standard deviation
+VABSnorms_STD_vine =  15
+VABSnorms_MEAN_vine = 100
+
+
+# assing subject to their norm cluster
+# loop on subects
+for (sub in (1:length(subjetc_list))){
+  subset_ = subset (data4normativemodel,data4normativemodel$subjectId==subjetc_list[sub])
+  if (subset_[1,'vine_AdapBehav_DomStd']>=VABSnorms_MEAN_vine - VABSnorms_STD_vine){
+    data4normativemodel[data4normativemodel$subjectId==subjetc_list[sub],'VABSnorms_cluster']="high"
+  }
+  else if (subset_[1,'vine_AdapBehav_DomStd'] <VABSnorms_MEAN_vine - VABSnorms_STD_vine & subset_[1,'vine_AdapBehav_DomStd'] > VABSnorms_MEAN_vine-2*VABSnorms_STD_vine){
+    data4normativemodel[data4normativemodel$subjectId==subjetc_list[sub],'VABSnorms_cluster']="med"
+  }
+  else if(subset_[1,'vine_AdapBehav_DomStd'] <= VABSnorms_MEAN_vine - 2*VABSnorms_STD_vine){
+    data4normativemodel[data4normativemodel$subjectId==subjetc_list[sub],'VABSnorms_cluster']="low"
+  }
+}
+
+data4normativemodel$VABSnorms_cluster <- factor( data4normativemodel$VABSnorms_cluster,levels = c("high","med","low"));
+
+# alluvial plot --> eventually make an alluvial plot to see how subjects change from reval stratification model to VABS norm startification model
+data4normativemodel_T1 = data4normativemodel[!duplicated(data4normativemodel$subjectId), ]
+VABSnorms_alluvial <- plotalluvial (data4normativemodel_T1,'subjectId','gender','cluster','VABSnorms_cluster', 'REVAL vs VABSnorms')
+# print the table
+print(table(data4normativemodel_T1$cluster, data4normativemodel_T1$VABSnorms_cluster)) #row REVAL col VABSnorms
+```
+
+### lme for VABS norm stratification
+Does VABS norms classification produce developmentally meaningful subtypes? 
+<br> run linear mixed effect model on MSEL subscales using as stratification variable VABS norms subtype 
+```{r,message=FALSE,warning=FALSE, error= FALSE}
+# for statistic
+data2stat = data4normativemodel[data4normativemodel$VABSnorms_cluster=="high" | data4normativemodel$VABSnorms_cluster=="med" |data4normativemodel$VABSnorms_cluster=="low",]
+data2stat$VABSnorms_cluster <- factor( data2stat$VABSnorms_cluster,levels = c("high","med","low"));
+sub_list = c("high","med","low")
+title_list= c("MSEL_VR","MSEL_FM","MSEL_RL","MSEL_EL")
+size = 3
+
+
+#lme for the 3 groups and save the results
+for (i in (1:4)) {
+  col2use =var2use[i]
+  #print(col2use)
+  title= title_list[i]
+  resp = spaghettiPlot2_nodataset(
+    data2use = data2stat,
+    x_var = 'mullen_ageMo',
+    y_var = col2use,
+    subgrp_var = "VABSnorms_cluster",
+    cov_vars=NULL,
+    xLabel = 'age',
+    yLabel = "age equivalent",
+    modelType = "linear",
+    fname2save = NULL,
+    plot_dots = FALSE, plot_lines = TRUE,
+    dot_alpha = 1/10, line_alpha = 3/10,
+    xLimits = c(0, 60), yLimits = c(0, 90),
+    lineColor = "cluster", dotColor = "cluster",
+    legend_name = "Slope", maxIter = 500,
+    plot_title = title
+  )
+  
+  # saving
+  lme2save = anova(resp$lme_model)
+  lme2save$`F value` = round(lme2save$`F value`, digits = 2)
+  lme2save$`DenDF` = round(lme2save$`DenDF`, digits = 2)
+  lme2save$`Sum Sq`= round(lme2save$`Sum Sq`, digits = 2)
+  lme2save$`Mean Sq` = round(lme2save$`Mean Sq`, digits = 2)
+  
+  for (j in 1:3){
+    if (lme2save[j,"Pr(>F)"]<= 0.001){
+      lme2save[j,"p-value_new"] = '<0.001'
+    }else if (lme2save[j,"Pr(>F)"]> 0.001){
+      #lme2save[j,"p-value_new"] = as.character(as.numeric(round(lme2save[j,"Pr(>F)"],digits = 3)),length= 5)}
+      lme2save[j,"p-value_new"] = paste("=",as.character(round(lme2save[j,"Pr(>F)"],digits = 3),sep = ""))}
+    
+  }
+  
+  #correct p value for multiple comparison
+  for (a in 1:3){
+    p = lme2save[a,"Pr(>F)"]
+    #print('p')
+    #print(p)
+    p_adj_ = p.adjust(p, method = "fdr", n = size)
+    #print('p_adj_')
+    #print(p_adj_)
+    lme2save[a,'p_adj_temp'] = p_adj_
+  }
+  #change p-adj format to be readable in excel
+  #print(lme2save)
+  for (d in 1:3){
+    if (lme2save[d,"p_adj_temp"]<= 0.001){
+      lme2save[d,"p_adj"] = '<0.001'
+    }else if (lme2save[d,"p_adj_temp"]> 0.001){
+      lme2save[d,"p_adj"] = paste("=",as.character(round(lme2save[d,"p_adj_temp"],digits = 3),sep = ""))}
+    
+  }
+  
+  lme_definitive_2save  = lme2save[,c("Sum Sq","Mean Sq","NumDF","DenDF","F value","p-value_new","p_adj")]
+  colnames(lme_definitive_2save) = c("Sum Sq","Mean Sq","NumDF","DenDF","F value","p-value","p_adj")
+  
+  
+  write.csv(lme_definitive_2save,file.path(result_path,paste('ANOVA_lme_spagh2_UCSD_VABSnorm_MELS_',col2use,".csv")))
+  
+}
+```  
+
+### post hoc comparison for the lme model
+```{r,message=FALSE, error = FALSE, warning=FALSE}
+# initialize some empty saving matrices
+ANOVA_post_hoc = as.data.frame(matrix(ncol=24,nrow=1))
+
+colnames_2save = c("col2use","sub_A","sub_B","SumSq_age","MeanSq_age","NumDF_age","DenDF_age","Fvalue_age","p-value_age",
+                   "p_adj_age", "SumSq_cluster","MeanSq_cluster","NumDF_cluster","DenDF_cluster",
+                   "Fvalue_cluster","p-value_cluster","p_adj_cluster",
+                   "SumSq_age:cluster","MeanSq_age:cluster","NumDF_age:cluster","DenDF_age:cluster",
+                   "Fvalue_age:cluster","p-value_age:cluster","p_adj_age:cluster")
+
+colnames(ANOVA_post_hoc) = colnames_2save
+
+# correct for multiple comparison
+size =  3 
+sub_poss1 = c("high","high","med")
+sub_poss2 = c("med","low","low")
+
+for (i in (1:4)) {
+  col2use = var2use[i]
+  print(col2use)
+  
+  # post hoc done by hand!
+  for(o in 1:3){
+    
+    sub1 = sub_poss1[o]
+    substypeA =  subset(data2stat,data2stat$cluster==sub1)
+    #for (d in 1:3){
+    
+    sub2 = sub_poss2[o]
+    substypeB=  subset(data2stat,data2stat$cluster==sub2)
+    # define vars
+    
+    title= title_list[i]
+    x_var = 'mullen_ageMo'
+    y_var = col2use
+    subgrp_var = "VABSnorms_cluster"
+    maxIter = 500
+    df2use = rbind(substypeA,substypeB)
+    
+    # define the formula
+    form2use = as.formula(sprintf("%s ~ %s*%s + (%s|subjectId)", #(1|%s) + 
+                                  y_var, x_var, subgrp_var, x_var))# "dataset",
+    
+    ctrl = lmerControl(optCtrl=list(maxfun=maxIter), # lmerControl(optCtrl=list(maxfun=maxIter)
+                       check.conv.singular = .makeCC(action = "ignore",  tol = 1e-4),check.nobs.vs.nRE = "ignore")
+    # run the model
+    m_allgrps <- eval(substitute(lmer(formula = form2use, data = df2use, na.action = na.omit, control = ctrl)))
+    
+    
+    # saving 
+    lme2save = anova(m_allgrps)
+    lme2save$`F value` = round(lme2save$`F value`, digits = 2)
+    lme2save$`DenDF` = round(lme2save$`DenDF`, digits = 2)
+    lme2save$`Sum Sq`= round(lme2save$`Sum Sq`, digits = 2)
+    lme2save$`Mean Sq` = round(lme2save$`Mean Sq`, digits = 2)
+    
+    for (j in 1:3){
+      if (lme2save[j,"Pr(>F)"]<= 0.001){
+        lme2save[j,"p-value_new"] = '<0.001'
+      }else if (lme2save[j,"Pr(>F)"]> 0.001){
+        lme2save[j,"p-value_new"] = paste("=",as.character(round(lme2save[j,"Pr(>F)"],digits = 3),sep = ""))}
+      
+    }
+    
+    #correct p value for multiple comparison
+    for (a in 1:3){
+      p = lme2save[a,"Pr(>F)"]
+      p_adj_ = p.adjust(p, method = "fdr", n = size)
+      lme2save[a,'p_adj_temp'] = p_adj_
+    }
+    
+    #change p-adj format to be readable in excel
+    for (d in 1:3){
+      if (lme2save[d,"p_adj_temp"]<= 0.001){
+        lme2save[d,"p_adj"] = '<0.001'
+      }else if (lme2save[d,"p_adj_temp"]> 0.001){
+        lme2save[d,"p_adj"] = paste("=",as.character(round(lme2save[d,"p_adj_temp"],digits = 3),sep = ""))}
+      
+    }
+    #print(lme2save)
+    #save the post-hoc lme complete
+    lm = lme2save[,c("Sum Sq","Mean Sq","NumDF","DenDF","F value","p-value_new","p_adj")]
+    colnames(lm) = c("Sum Sq","Mean Sq","NumDF","DenDF","F value","p-value","p_adj")
+    
+    write.csv(lm,file.path(result_path,"post_hoc",'MSEL_UCSD_VABSnorm',paste('Post_hoc_ANOVA_lme_spagh2_UCSD_VABSnorm_',col2use,"_",sub1,"_",sub2,".csv",sep='')))
+    
+    #save in a unique table
+    vect2save = c(col2use,sub1,sub2,as.list(as.vector(t(lm))))
+    ANOVA_post_hoc = rbind(ANOVA_post_hoc,vect2save) 
+  }
+}
+
+
+
+write.csv(ANOVA_post_hoc[2:length(ANOVA_post_hoc$col2use),],file.path(result_path,'Posthoc_USCD_VABSnorm_MSELlong.csv'))
+
+```
+
+
+### model comparison in for loop for saving AIC matrix
+```{r,message=FALSE,warning=FALSE, errors= FALSE}
+# define which data will be used
+# data2stat = data4normativemodel[data4normativemodel$VABSnorms_cluster=="high" | data4normativemodel$VABSnorms_cluster=="med" |data4normativemodel$VABSnorms_cluster=="low",]
+# data2stat$VABSnorms_cluster <- factor( data2stat$VABSnorms_cluster,levels = c("high","med","low"));
+sub_list = c("high","med","low")
+
+# prepare model matrix with name of the model and the name of the columns in the DB
+models2use = c("VABSnorm","REVAL")
+colnames= c('VABSnorms_cluster','cluster')
+model_list = c('VABSnorms_cluster','cluster')
+
+# prepare AIC matrix
+AIC_matrix = as.data.frame (matrix(nrow=length(models2use),ncol= 4))
+colnames(AIC_matrix)= var2use
+rownames(AIC_matrix) = models2use
+
+
+# loop trought the Mullen Varibales
+for (i in 1:length(var2use)){
+  col2use = var2use[i]
+  # loop trought the models (REVAL, VABS_norms)
+  for (j in 1: length(models2use)){
+    sub2use = model_list[j]
+    resp = spaghettiPlot2_nodataset(
+      data2use = data2stat,
+      x_var = 'mullen_ageMo',
+      y_var = col2use,
+      subgrp_var = sub2use,
+      cov_vars=NULL,
+      xLabel = 'age',
+      yLabel = "age equivalent",
+      modelType = "linear",
+      fname2save = NULL,
+      plot_dots = FALSE, plot_lines = TRUE,
+      dot_alpha = 1/10, line_alpha = 3/10,
+      xLimits = c(0, 60), yLimits = c(0, 90),
+      lineColor = "cluster", dotColor = "cluster",
+      legend_name = "Slope", maxIter = 500,
+      plot_title = title
+    )
+    
+    AIC_matrix[j,i]= AIC(resp$lme_model)
+    print(paste(sub2use,col2use ))
+    print(AIC(resp$lme_model))
+  }
+}
+
+# save AIC_matrix
+# write.csv(AIC_matrix,file.path(result_path,'AIC_matrix_REVAL_VABSnorm.csv'))
+```
+
+### saving cluster labels to be plotted for umap
+uncomment here if you want to save colusters labels for having some nice visualization on UMAP
+```{r, include=FALSE}
+#save for UMAP
+#col2save = c('subjectId','gender', 'vine_ComTotal_DomStd','vine_DlyTotal_DomStd','vine_SocTotal_DomStd',
+#             'vine_MtrTotal_DomStd','time',"cluster" ,"VABSnorms_cluster"  )
+#data2save= data4normativemodel[data4normativemodel$time==1,col2save]
+#write.csv(data2save,file.path(result_path,'clusters4UMAP.csv'))
+
+# save for other things
+#write.csv(data4normativemodel,file.path(result_path,'uscd_4modelcluster_longitudinal.csv'))
+```

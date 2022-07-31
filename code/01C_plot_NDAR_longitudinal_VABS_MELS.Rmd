@@ -1,0 +1,519 @@
+---
+title: "01C plot REVAL subtypes longitudinal analysis (VABS/MELS)"
+author: "Veronica Mandelli"
+date: "2/8/2022"
+output: html_document
+---
+# REVAL SUBTYPES LONGITUDINAL TRAJECTORIES
+in this script we will analyze and visualize longitudinal trajectories of the VABS subtypes discovered in NDA databse.
+longitudinal analysis will be carry out for both VABS and MSEL
+
+## load libraries, data, useful functions and set paths
+```{r, warning = FALSE, errors = FALSE,message=FALSE}
+# set path
+work_dir = '/Users/vmandelli/OneDrive - Fondazione Istituto Italiano Tecnologia/vineland_proj_new'
+code_path = file.path(work_dir,'code','R')
+data_path = file.path(work_dir,'data','raw','NDAR')
+result_path = file.path(work_dir,'results','FINAL_correct')
+plot_path = file.path(work_dir,'plots',"FINAL_correct")
+library(wesanderson)
+library(ggplot2)
+
+#load useful functions
+source(file.path(code_path,"spaghettiPlot_new.R"))
+source(file.path(code_path,"spaghettiPlot.R"))
+source(file.path(code_path,"spaghettiPlot2.R"))
+
+
+# load ndar for subject ids
+#load train
+datafile = 'imputed_data_P1_tr.csv'
+data_tr <- read.csv(file.path(result_path,datafile))
+#load test
+datafile = 'imputed_data_P1_ts.csv'
+data_ts <- read.csv(file.path(result_path,datafile))
+#merge them
+data = rbind(data_tr,data_ts[,1:11])
+
+# renema clusters labels in a more intuitive format * 2= high * 3= med * 1 = low
+for (i in (1:length(data$cluster_domain))) {
+  if (data[i, 'cluster_domain'] == 2){
+    data[i,'cluster'] = "high"
+  }
+  else if (data[i, 'cluster_domain'] == 3){
+    data[i,'cluster'] = "med"
+  }
+  else if (data[i, 'cluster_domain'] == 1){
+    data[i,'cluster'] = "low"
+  }
+}
+
+# define subject list
+subect_list = data$subjectkey
+```
+
+# VINELAND SCALES OF ADAPTIVE BEHAVIOR
+```{r,warning=FALSE,error=FALSE,message=FALSE}
+# load files of longitudinal NDA VABS
+
+file = 'vineland_72months_long.txt'
+data_long = read.csv(file.path(data_path,file))
+col2use = c("subjectkey","interview_age", "communicationdomain_totalb","livingskillsdomain_totalb",
+            "socializationdomain_totalb","motorskillsdomain_totalb")
+data_long = data_long[,col2use]    
+
+# select subjects only if VABS labels are present (those included into the reval stratification model)
+data_long_sub = data_long[data_long$subjectkey %in% subect_list,]
+
+# merge cluster labels
+data_long_sub_clust = merge(data_long_sub,data[,c("subjectkey","cluster")], by="subjectkey")
+
+# check how many subjects (Remember in Reval there is also VABS 3, that is why some subject here are missed)
+print(length(unique(data_long_sub_clust$subjectkey)))
+sum(table(data_long_sub_clust$subjectkey)>1)
+
+# add the clollection ID
+datafile = "edition_subid.csv"
+pheno <- read.csv(file.path(result_path,datafile))
+pheno = pheno[pheno$subjectkey %in% subect_list,c("subjectkey","collection_id","edition")]
+# merge
+data2stat = merge(data_long_sub_clust, pheno[,c("edition","subjectkey","collection_id")], by = c("subjectkey"),all.x = TRUE,all.y = FALSE)
+print(length(unique(data2stat$subjectkey)))
+colnames(data2stat) = c( "subjectId", "interview_age","communicationdomain_totalb","livingskillsdomain_totalb",
+                         "socializationdomain_totalb","motorskillsdomain_totalb","cluster" , "edition","dataset")
+```
+
+## longitudinal analysis on VABS
+```{r,warning=FALSE,error=FALSE,message=FALSE}
+#initialize some variablel to use
+var2use = c("communicationdomain_totalb","livingskillsdomain_totalb",
+            "socializationdomain_totalb","motorskillsdomain_totalb")
+
+# for statistic
+data2stat$cluster <- factor( data2stat$cluster,levels = c("high","med","low"))
+data2stat$dataset <- factor( data2stat$dataset) 
+
+# longitudinal on VABS
+data_long_sub_clust$cluster=factor(data_long_sub_clust$cluster,levels = c("high","med","low"))
+data_long_sub_clust$'subjectId'=data_long_sub_clust$subjectkey
+plt=list()
+title_list= c("VABS_com","VABS_liv","VABS_soc","VABS_mot")
+color = wes_palette("IsleofDogs1")
+size = 4
+
+# looping on VABS variables
+for (i in 1:length(var2use)) {
+  col2use =var2use[i]
+  #col2use =vabs2use[i]
+  title = title_list[i]
+  
+  # plot 
+  spagh =   spaghettiPlot2(
+    data2use = data2stat,
+    x_var = 'interview_age',
+    y_var = col2use,
+    subgrp_var = "cluster",
+    cov_vars=NULL,
+    xLabel = 'age',
+    yLabel = "age equivalent",
+    modelType = "linear",
+    fname2save = NULL,
+    plot_dots = FALSE, plot_lines = TRUE,
+    dot_alpha = 1/10, line_alpha = 3/10,
+    xLimits = c(0, 85), yLimits = c(25, 125),
+    lineColor = "cluster", dotColor = "cluster",
+    legend_name = "Slope", maxIter = 500,
+    plot_title = title
+  )
+  
+  # change plot color 
+  cols2use = color
+  font_size = 11
+  p_com = spagh$p
+  p_com = p_com + scale_colour_manual(values = cols2use) + scale_fill_manual(values = cols2use)
+  p_com = p_com + theme_bw(base_size = font_size) +
+    theme(plot.title = element_text(hjust = 0.5, size=font_size)) +
+    guides(colour = FALSE, fill = FALSE)
+  #ggsave(file.path(plot_path,paste('NDAR_VABS_long',col2use,'.png',sep="")), p_com, width = 6 ,height = 4)
+  print(p_com)   
+  plt [[i]]= p_com
+  
+  # do lme analysis
+  lme2save = anova(spagh$lme_model)
+  
+  #cchange output format
+  lme2save$`F value` = round(lme2save$`F value`, digits = 2)
+  lme2save$`DenDF` = round(lme2save$`DenDF`, digits = 2)
+  lme2save$`Sum Sq`= round(lme2save$`Sum Sq`, digits = 2)
+  lme2save$`Mean Sq` = round(lme2save$`Mean Sq`, digits = 2)
+  
+  # change p value format to be readable in excel
+  for (j in 1:3){
+    if (lme2save[j,"Pr(>F)"]<= 0.001){
+      lme2save[j,"p-value_new"] = '<0.001'
+    }else if (lme2save[j,"Pr(>F)"]> 0.001){
+      
+      lme2save[j,"p-value_new"] = paste("=",as.character(round(lme2save[j,"Pr(>F)"],digits = 3),sep = ""))}
+    
+  }
+  
+  # correct p value for multiple comparison
+  for (a in 1:3){
+    p = lme2save[a,"Pr(>F)"]
+    #print('p')
+    #print(p)
+    p_adj_ = p.adjust(p, method = "fdr", n = size)
+    #print('p_adj_')
+    #print(p_adj_)
+    lme2save[a,'p_adj_temp'] = p_adj_
+  }
+  
+  # change p-adj format to be readable in excel
+  print(lme2save)
+  for (d in 1:3){
+    if (lme2save[d,"p_adj_temp"]<= 0.001){
+      lme2save[d,"p_adj"] = '<0.001'
+    }else if (lme2save[d,"p_adj_temp"]> 0.001){
+      lme2save[d,"p_adj"] = paste("=",as.character(round(lme2save[d,"p_adj_temp"],digits = 3),sep = ""))}
+  }
+  
+  lme_final_2save = lme2save[,c("Sum Sq","Mean Sq","NumDF","DenDF","F value","p-value_new","p_adj")]
+  colnames(lme_final_2save)= c("Sum Sq","Mean Sq","NumDF","DenDF","F value","p value","p_adj")                      
+  #write.csv(lme_final_2save,file.path(result_path,paste('ANOVA_lme_spagh2_NDAR_VABS_',col2use,".csv")))
+}
+```
+
+## post hoc analysis on NDAR - VABS 
+pairwise comparison between subtype
+```{r,warning=FALSE,error=FALSE,message=FALSE}
+# initialize some empty saving matrices
+ANOVA_post_hoc = as.data.frame(matrix(ncol=24,nrow=1))
+
+colnames_2save = c("col2use","sub_A","sub_B","SumSq_age","MeanSq_age","NumDF_age","DenDF_age","Fvalue_age","p-value_age",
+                   "p_adj_age", "SumSq_cluster","MeanSq_cluster","NumDF_cluster","DenDF_cluster",
+                   "Fvalue_cluster","p-value_cluster","p_adj_cluster",
+                   "SumSq_age:cluster","MeanSq_age:cluster","NumDF_age:cluster","DenDF_age:cluster",
+                   "Fvalue_age:cluster","p-value_age:cluster","p_adj_age:cluster")
+
+colnames(ANOVA_post_hoc) = colnames_2save
+
+#set size for p correction (number of hypothesis)
+size  = 3 # 3 HP for each subscale 
+sub_poss1 = c("high","high","med")
+sub_poss2 = c("med","low","low")
+#i=0
+
+
+# loop in the VABS subscale
+for (i in (1:4)) {
+  col2use = var2use[i]
+  print(col2use)
+  
+  # post hoc done by hand!
+  #loop on subtypes
+  for(o in 1:3){
+    
+    sub1 = sub_poss1[o]
+    substypeA =  subset(data2stat,data2stat$cluster==sub1)
+    #for (d in 1:3){
+    
+    sub2 = sub_poss2[o]
+    substypeB=  subset(data2stat,data2stat$cluster==sub2)
+    
+    # define vars
+    title= title_list[i]
+    x_var = 'interview_age'
+    y_var = col2use
+    subgrp_var = "cluster"
+    maxIter = 500
+    df2use = rbind(substypeA,substypeB)
+    
+    # define the formula
+    form2use = as.formula(sprintf("%s ~ %s*%s + (1|dataset) + (%s|subjectId)", #(1|dataset) + 
+                                  y_var, x_var, subgrp_var, x_var)) # "dataset",
+    
+    ctrl = lmerControl(optCtrl=list(maxfun=maxIter), # lmerControl(optCtrl=list(maxfun=maxIter)
+                       check.conv.singular = .makeCC(action = "ignore",  tol = 1e-4),check.nobs.vs.nRE = "ignore")
+    # run the model
+    m_allgrps <- eval(substitute(lmer(formula = form2use, data = df2use, na.action = na.omit, control = ctrl)))
+    
+    # saving 
+    #print(sub1)
+    #print(sub2)
+    
+    lme2save = anova(m_allgrps)
+    lme2save$`F value` = round(lme2save$`F value`, digits = 2)
+    lme2save$`DenDF` = round(lme2save$`DenDF`, digits = 2)
+    lme2save$`Sum Sq`= round(lme2save$`Sum Sq`, digits = 2)
+    lme2save$`Mean Sq` = round(lme2save$`Mean Sq`, digits = 2)
+    
+    #change p-value format to be readable in excel
+    for (j in 1:3){
+      if (lme2save[j,"Pr(>F)"]<= 0.001){
+        lme2save[j,"p-value_new"] = '<0.001'
+      }else if (lme2save[j,"Pr(>F)"]> 0.001){
+        lme2save[j,"p-value_new"] = paste("=",as.character(round(lme2save[j,"Pr(>F)"],digits = 3),sep = ""))}
+      
+    }
+    
+    #correct p value for multiple comparison
+    for (a in 1:3){
+      p = lme2save[a,"Pr(>F)"]
+      p_adj_ = p.adjust(p, method = "fdr", n = size)
+      lme2save[a,'p_adj_temp'] = p_adj_
+    }
+    
+    #change p-adj format to be readable in excel
+    for (d in 1:3){
+      if (lme2save[d,"p_adj_temp"]<= 0.001){
+        lme2save[d,"p_adj"] = '<0.001'
+      }else if (lme2save[d,"p_adj_temp"]> 0.001){
+        lme2save[d,"p_adj"] = paste("=",as.character(round(lme2save[d,"p_adj_temp"],digits = 3),sep = ""))}
+      
+    }
+    #print(lme2save)
+    #save the post-hoc lme complete
+    lm = lme2save[,c("Sum Sq","Mean Sq","NumDF","DenDF","F value","p-value_new","p_adj")]
+    colnames(lm) = c("Sum Sq","Mean Sq","NumDF","DenDF","F value","p-value","p_adj")
+    #write.csv(lm,file.path(result_path,"A.csv")) ## wrongpath
+     write.csv(lm,file.path(result_path,"post_hoc",'VABS_NDAR',paste('Post_hoc_ANOVA_lme_spagh2_NDAR_',col2use,"_",sub1,"_",sub2,".csv",sep='')))
+    
+    vect2save = c(col2use,sub1,sub2,as.list(as.vector(t(lm))))
+    ANOVA_post_hoc = rbind(ANOVA_post_hoc,vect2save)
+    #}
+  }}
+
+write.csv(ANOVA_post_hoc[2:length(ANOVA_post_hoc$col2use),],file.path(result_path,"Posthoc_NDAR_VABSlong.csv")) 
+```
+
+# MULLEN SCALES OF EARLY LEARNING (MSEL)
+```{r,warning=FALSE,error=FALSE,message=FALSE}
+
+# load files
+file = 'mullen_72months_long.txt'
+data_mels_long = read.csv(file.path(data_path,file))
+
+# select cols
+col2use = c("subjectkey","interview_age", "scoresumm_vr_age_equiv" , 
+            "scoresumm_fm_age_equiv",  "scoresumm_rl_age_equiv",  "scoresumm_el_age_equiv" )
+data_mels_long = data_mels_long[,col2use]   
+# drop duplicates
+data_mels_long= data_mels_long[!duplicated(data_mels_long), ]
+
+# select only subject used to run reval
+data_mels_long_sub = data_mels_long[data_mels_long$subjectkey%in%subect_list,]
+data_mels_long_sub_clust = merge(data_mels_long_sub,data[,c("subjectkey","cluster")], by="subjectkey")
+
+# take only interview_age <68 monhts (MELS standard format)
+data_mels_long_sub_clust_age=data_mels_long_sub_clust[data_mels_long_sub_clust$interview_age<=68,]
+
+# how many subjects?
+print(length(unique(data_mels_long_sub_clust_age$subjectkey)))
+
+# add the collection ID
+datafile = "edition_subid.csv"
+pheno <- read.csv(file.path(result_path,datafile))
+pheno = pheno[pheno$subjectkey %in% subect_list,c("subjectkey","collection_id","edition")]
+# merge
+data2stat = merge(data_mels_long_sub_clust_age, pheno[,c("edition","subjectkey","collection_id")], by = c("subjectkey"),all.x = TRUE,all.y = FALSE)
+print(length(unique(data2stat$subjectkey)))
+
+# change colnames
+colnames(data2stat) = c( "subjectId", "interview_age","scoresumm_vr_age_equiv" ,"scoresumm_fm_age_equiv", "scoresumm_rl_age_equiv", "scoresumm_el_age_equiv" ,"cluster" , "edition","dataset")
+```
+
+### longitudinal analysis on VABS
+```{r,warning=FALSE,error=FALSE}
+
+# for statistic
+data2stat$cluster <- factor( data2stat$cluster,levels = c("high","med","low"))
+data2stat$dataset <- factor( data2stat$dataset) 
+title_list= c("MSEL_VR","MSEL_FM","MSEL_RL","MSEL_EL")
+var2use = c("scoresumm_vr_age_equiv" , 
+            "scoresumm_fm_age_equiv", 
+            "scoresumm_rl_age_equiv",  
+            "scoresumm_el_age_equiv" )
+color = wes_palette("IsleofDogs1")
+plt_mels = list()
+size =  3
+
+# loop on MSEL subscales
+for (i in 1:length(var2use)) {
+  col2use =var2use[i]
+  title= title_list[i]
+  resp = spaghettiPlot2(
+    data2use = data2stat,
+    x_var = 'interview_age',
+    y_var = col2use,
+    subgrp_var = "cluster",
+    cov_vars=NULL,
+    xLabel = 'age',
+    yLabel = "age equivalent",
+    modelType = "linear",
+    fname2save = NULL,
+    plot_dots = FALSE, plot_lines = TRUE,
+    dot_alpha = 1/10, line_alpha = 3/10,
+    xLimits = c(0, 60), yLimits = c(0, 90),
+    lineColor = "cluster", dotColor = "cluster",
+    legend_name = "Slope", maxIter = 500,
+    plot_title = title
+  )
+  
+  
+  # change color 
+  cols2use = color
+  font_size = 11
+  p_com = resp$p
+  p_com = p_com + scale_colour_manual(values = cols2use) + scale_fill_manual(values = cols2use)
+  p_com = p_com + theme_bw(base_size = font_size) +
+    theme(plot.title = element_text(hjust = 0.5, size=font_size)) +
+    guides(colour = FALSE, fill = FALSE)
+  # ggsave(file.path(plot_path,paste('NDAR_MELS_long',col2use,'.png',sep="")), p_com, width = 6 ,height = 4)
+  # save plot in a list
+  plt_mels[[i]] = p_com
+  print(p_com)
+  
+  # anova on lme
+  lme2save = anova(resp$lme_model)
+  
+  # change p values format to be more readable in excell
+  lme2save$`F value` = round(lme2save$`F value`, digits = 2)
+  lme2save$`DenDF` = round(lme2save$`DenDF`, digits = 2)
+  lme2save$`Sum Sq`= round(lme2save$`Sum Sq`, digits = 2)
+  lme2save$`Mean Sq` = round(lme2save$`Mean Sq`, digits = 2)
+  
+  for (j in 1:3){
+    if (lme2save[j,"Pr(>F)"]<= 0.001){
+      lme2save[j,"p-value_new"] = '<0.001'
+    }else if (lme2save[j,"Pr(>F)"]> 0.001){
+      #lme2save[j,"p-value_new"] = as.character(as.numeric(round(lme2save[j,"Pr(>F)"],digits = 3)),length= 5)}
+      lme2save[j,"p-value_new"] = paste("=",as.character(round(lme2save[j,"Pr(>F)"],digits = 3),sep = ""))}
+      #lme2save[j,"p-value_new"] = round(lme2save[j,"Pr(>F)"],digits = 3)}
+}
+  
+  #correct p value for multiple comparison
+  for (a in 1:3){
+    p = lme2save[a,"Pr(>F)"]
+    #print('p')
+    #print(p)
+    p_adj_ = p.adjust(p, method = "fdr", n = size)
+    #print('p_adj_')
+    #print(p_adj_)
+    lme2save[a,'p_adj_temp'] = p_adj_
+  }
+  
+  # change p-adj format to be readable in excel
+  print(lme2save)
+  for (d in 1:3){
+    if (lme2save[d,"p_adj_temp"]<= 0.001){
+      lme2save[d,"p_adj"] = '<0.001'
+    }else if (lme2save[d,"p_adj_temp"]> 0.001){
+      lme2save[d,"p_adj"] = paste("=",as.character(round(lme2save[d,"p_adj_temp"],digits = 3),sep = ""))}
+  }
+  
+  lme_final_2save = lme2save[,c("Sum Sq","Mean Sq","NumDF","DenDF","F value","p-value_new","p_adj")]
+  colnames(lme_final_2save)= c("Sum Sq","Mean Sq","NumDF","DenDF","F value","p value","p_adj")   
+  
+  #write.csv(lme_final_2save,file.path(result_path,paste('ANOVA_lme_spagh2_NDAR_MELS_',col2use,".csv")))
+}
+```
+
+### post hoc comparison for the lme model NDAR - MSEL
+```{r,warning=FALSE,error=FALSE,message=FALSE}
+# initialize some empty saving matrices
+ANOVA_post_hoc = as.data.frame(matrix(ncol=24,nrow=1))
+
+colnames_2save = c("col2use","sub_A","sub_B","SumSq_age","MeanSq_age","NumDF_age","DenDF_age","Fvalue_age","p-value_age",
+                   "p_adj_age", "SumSq_cluster","MeanSq_cluster","NumDF_cluster","DenDF_cluster",
+                   "Fvalue_cluster","p-value_cluster","p_adj_cluster",
+                   "SumSq_age:cluster","MeanSq_age:cluster","NumDF_age:cluster","DenDF_age:cluster",
+                   "Fvalue_age:cluster","p-value_age:cluster","p_adj_age:cluster")
+
+colnames(ANOVA_post_hoc) = colnames_2save
+
+#set size for p correction (number of hypothesis)
+size  = 3 # 3 HP for each subscale 
+sub_poss1 = c("high","high","med")
+sub_poss2 = c("med","low","low")
+#i=0
+
+#i=0
+for (i in (1:4)) {
+  col2use = var2use[i]
+  #print(col2use)
+  
+  # post hoc done by hand!
+  for(o in 1:3){
+    
+    sub1 = sub_poss1[o]
+    substypeA =  subset(data2stat,data2stat$cluster==sub1)
+    #for (d in 1:3){
+    
+    sub2 = sub_poss2[o]
+    substypeB=  subset(data2stat,data2stat$cluster==sub2)
+    # define vars
+    
+    title= title_list[i]
+    x_var = 'interview_age'
+    y_var = col2use
+    subgrp_var = "cluster"
+    maxIter = 500
+    df2use = rbind(substypeA,substypeB)
+    
+    # define the formula
+    form2use = as.formula(sprintf("%s ~ %s*%s + (1|dataset) + (%s|subjectId)", #(1|dataset) + 
+                                  y_var, x_var, subgrp_var, x_var)) # "dataset",
+    
+    ctrl = lmerControl(optCtrl=list(maxfun=maxIter), # lmerControl(optCtrl=list(maxfun=maxIter)
+                       check.conv.singular = .makeCC(action = "ignore",  tol = 1e-4),check.nobs.vs.nRE = "ignore")
+    # run the model
+    m_allgrps <- eval(substitute(lmer(formula = form2use, data = df2use, na.action = na.omit, control = ctrl)))
+    
+    # saving 
+    #print(sub1)
+    #print(sub2)
+    
+    lme2save = anova(m_allgrps)
+    lme2save$`F value` = round(lme2save$`F value`, digits = 2)
+    lme2save$`DenDF` = round(lme2save$`DenDF`, digits = 2)
+    lme2save$`Sum Sq`= round(lme2save$`Sum Sq`, digits = 2)
+    lme2save$`Mean Sq` = round(lme2save$`Mean Sq`, digits = 2)
+    
+    for (j in 1:3){
+      if (lme2save[j,"Pr(>F)"]<= 0.001){
+        lme2save[j,"p-value_new"] = '<0.001'
+      }else if (lme2save[j,"Pr(>F)"]> 0.001){
+        lme2save[j,"p-value_new"] = paste("=",as.character(round(lme2save[j,"Pr(>F)"],digits = 3),sep = ""))}
+      
+    }
+    
+    #correct p value for multiple comparison
+    for (a in 1:3){
+      p = lme2save[a,"Pr(>F)"]
+      p_adj_ = p.adjust(p, method = "fdr", n = size)
+      lme2save[a,'p_adj_temp'] = p_adj_
+    }
+    
+    #change p-adj format to be readable in excel
+    for (d in 1:3){
+      if (lme2save[d,"p_adj_temp"]<= 0.001){
+        lme2save[d,"p_adj"] = '<0.001'
+      }else if (lme2save[d,"p_adj_temp"]> 0.001){
+        lme2save[d,"p_adj"] = paste("=",as.character(round(lme2save[d,"p_adj_temp"],digits = 3),sep = ""))}
+      
+    }
+    #print(lme2save)
+    #save the post-hoc lme complete
+    lm = lme2save[,c("Sum Sq","Mean Sq","NumDF","DenDF","F value","p-value_new","p_adj")]
+    colnames(lm) = c("Sum Sq","Mean Sq","NumDF","DenDF","F value","p-value","p_adj")
+    
+    write.csv(lm,file.path(result_path,"post_hoc",'MSEL_NDAR',paste('Post_hoc_ANOVA_lme_spagh2_NDAR_',col2use,"_",sub1,"_",sub2,".csv",sep='')))
+    vect2save = c(col2use,sub1,sub2,as.list(as.vector(t(lm))))
+    ANOVA_post_hoc = rbind(ANOVA_post_hoc,vect2save)
+    
+  }
+  
+}
+
+#write.csv(ANOVA_post_hoc[2:length(ANOVA_post_hoc$col2use),],file.path(result_path,"Posthoc_NDAR_MSELlong.csv"))
+```

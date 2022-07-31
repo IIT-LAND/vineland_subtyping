@@ -1,0 +1,667 @@
+---
+title: "03 subtyping model application on USCD dataset"
+author: "Veronica Mandelli"
+date: "10/20/2020"
+output: html_document
+---
+
+# MODEL APPLICATION ON UCSD DATASET - LONGITUDINAL ANALYSIS OF MSEL AND VABS DEVELOPMENTAL TRAJECTORIES
+in this script we are going to analyze longitudinal data from UCSD dataset on MSEL and VABS.
+subjecta have been already classified into the 3 VABS subtypes using the script '02_UCSD_classification.ipynb'
+
+```{r, message=FALSE, warning=FALSE , error = FALSE, hide=TRUE}
+# load packages
+library(easypackages)
+library(MetBrewer)
+library(emmeans)
+library(nlme)
+library(wesanderson)
+libraries('here','ggplot2','gplots','reshape2','gridExtra')
+
+#define paths
+work_dir = '/Users/vmandelli/OneDrive - Fondazione Istituto Italiano Tecnologia/vineland_proj_new'
+code_path = file.path(work_dir,'code','R')
+uscd_data_path = file.path(work_dir,'results','FINAL_correct')
+#ndar_data_path = file.path(work_dir,'results','vero_results')
+result_path = file.path(work_dir,'results','FINAL_correct')
+plot_path = file.path(work_dir,'plots',"FINAL_correct")
+source(file.path(code_path,"spaghettiPlot_new.R"))
+source(file.path(code_path,"spaghettiPlot.R"))
+source(file.path(code_path,"spaghettiPlot2_nodataset.R"))
+color = wes_palette("IsleofDogs1")
+
+
+```
+
+### load data a preliminary checks
+```{r,message=FALSE, warning=FALSE ,}
+# load data
+data <- read.csv(file.path(uscd_data_path,'ucsd_long_allSubj_clusters.csv'))
+
+#check that we load the correct database (1216 T1 ASD subject should be there)
+data_asd= data[data$cluster=='1.0' | data$cluster=='2.0' |data$cluster=='3.0',]
+length(data_asd[data_asd$time == 1,'cluster'])
+
+# prepare a table with some descriptive statistic of UCSD dataset
+descriptive_table =  as.data.frame(matrix(nrow=5, ncol=5))
+rownames(descriptive_table)=c("t1","t2","t3","t4","t5")
+colnames(descriptive_table)=c('tot','m','f','age_mean','age_std')
+
+for (i in 1:5){
+  data2use = data_asd[data_asd$time == i,]
+  descriptive_table[i,'tot'] = sum(!is.na(data2use$mullen_ageMo))
+  descriptive_table[i,'m'] = sum(!is.na(data2use[data2use$gender=="M",'mullen_ageMo']))
+  descriptive_table[i,'f'] = sum(!is.na(data2use[data2use$gender=="F",'mullen_ageMo']))
+  descriptive_table[i,'age_mean'] =  mean(data2use$mullen_ageMo,na.rm = TRUE)
+  descriptive_table[i,'age_std'] =  sd(data2use$mullen_ageMo,na.rm = TRUE)
+}
+#write.csv(descriptive_table,file.path(result_path,'UCSD_description_oftimepoints.csv'))
+```
+
+## plot sample description (age and sex)
+```{r,message=FALSE, warning=FALSE ,}
+col2use = c("subjectid","gender","vine_agemo")
+
+data2plot = data_asd[data_asd$time == 1,col2use]
+data2plot$gender <- factor(data2plot$gender,levels = c("M","F"))
+
+p<-ggplot(data2plot, aes(x=vine_agemo, fill=gender, color=gender)) +
+  geom_histogram(position="identity", alpha=0.4,bins = 30)+
+  geom_vline(aes(xintercept=mean(vine_agemo)), color="blue",linetype="dashed")+
+  scale_color_manual(values=c("#99ccff","#ffcccc"))+
+  scale_fill_manual(values=c("#99ccff","#ffcccc"))+
+  scale_x_continuous( limits=c(12,72),breaks=c(12, 24,36,48,60,72))+
+  scale_y_continuous( limits=c(0,100),breaks=c(0,20,40,60,80,100))+
+  labs(title="UCSD database",x="age (months)", y = "sample size")+
+  theme_classic()+coord_fixed(ratio = 1)
+  
+p
+#ggsave(file.path(plot_path,'/UCSD_T1_ASD_samplesize.png'),width = 6,height = 4)
+
+# save some demographics
+sex_USCD_table = as.data.frame(table(data2plot$gender))
+#write.csv(sex_USCD_table,file.path(result_path,'sex_USCD_table.csv'))
+age_USCD_table =as.data.frame(as.matrix(summary(data2plot$vine_agemo)))
+#write.csv(age_USCD_table,file.path(result_path,'age_USCD_table.csv'))
+```
+
+### prepare data for the longitudinal plot
+```{r,message=FALSE,warning=FALSE}
+# prepare data
+# column with subject_id should be called subjectId
+colnames(data)[which(names(data) == "subjectid")] <- "subjectId"
+
+# selct only subjects that have a cluster/dignosis (exclude those ASD with t1>72, or that do not have longitudinal data)
+data$cluster[data$cluster==''] <- NA 
+data = data[!is.na(data$cluster),]
+
+# rename row 
+row.names(data) <- NULL
+
+#age should be round
+data$vine_agemo = round(data$vine_agemo)
+data$mullen_ageMo = round(data$mullen_ageMo)
+
+# remane in a more intuitive format
+  for (i in (1:length(data$cluster))) {
+    if (data[i, 'cluster'] == '2.0'){
+      data[i,'cluster'] = "high"
+    }
+    else if (data[i, 'cluster'] == '3.0'){
+      data[i,'cluster'] = "med"
+    }
+    else if (data[i, 'cluster'] == '1.0'){
+      data[i,'cluster'] = "low"
+      }
+  }
+
+#cluster calumn should be a factor
+#define cluster columns as a factor
+data$cluster <- as.factor(data$cluster)
+
+# correct some "0"
+data[data == 0] <- NA   
+
+cl_number_tab = table(data$cluster)/5
+#write.csv(cl_number_tab,file.path(result_path,'UCSD_cluster_samplesize.csv'))
+```
+
+### longitudinal analysis
+selct here if you want to run it on MSEL or VABS 
+```{r}
+# variable selection
+
+# MELS
+var2use = c('mullen_VR_AgeEq','mullen_FM_AgeEq','mullen_RL_AgeEq','mullen_EL_AgeEq')
+X_var_ = 'mullen_ageMo'
+title_list= c("MSEL_VR","MSEL_FM","MSEL_RL","MSEL_EL")
+y_lim_ = c(0, 90)
+x_lim_ = c(0, 60)
+post_hoc_folder  = 'MSEL_UCSD_REVAL'
+name_lme = 'ANOVA_lme_spagh2_UCSD_REVAL_MSEL_'
+name_posthoc = 'Post_hoc_ANOVA_lme_spagh2_UCSD_MSEL_'
+name_sum_post_hoc_ = "Posthoc_UCSD_MSELlong.csv"
+
+##VABS
+# var2use = c('vine_ComTotal_DomStd','vine_DlyTotal_DomStd','vine_SocTotal_DomStd','vine_MtrTotal_DomStd')
+# X_var_ = 'vine_agemo'
+# title_list= c("VABS_comm","VABS_dailyski","VABS_soc","VABS_mot")
+# y_lim_ = c(25, 125)
+# x_lim_ = c(0,85)
+# post_hoc_folder  = 'VABS_UCSD'
+# name_lme = 'ANOVA_lme_spagh2_UCSD_REVAL_VABS_'
+# name_posthoc = 'Post_hoc_ANOVA_lme_spagh2_UCSD_VABS_'
+# name_sum_post_hoc_ = "Posthoc_UCSD_VABSlong.csv"
+```
+
+### select data for plotting (including TD) and for statistics (exluding TD)
+```{r,message=FALSE,warning=FALSE}
+# for plotting
+data2use = data[data$cluster=="high" | data$cluster=="med" |data$cluster=="low"|data$cluster=="TD",]
+data2use$cluster <- factor( data2use$cluster,levels = c("high","med","low","TD"));
+
+# for statistic
+data2stat = data[data$cluster=="high" | data$cluster=="med" |data$cluster=="low",]
+data2stat$cluster <- factor( data2stat$cluster,levels = c("high","med","low"));
+data2stat$dataset = "UCSD"
+```
+
+### STATISTIC: linear mixed effect model only on ASD groups.
+```{r, warning=FALSE, error= FALSE}
+# size for multiple comparison
+size = 3 # 3 HP for each subscale
+
+#using spaghettiplot2
+plt = list()
+for (i in 1:length(var2use)) {
+  col2use =var2use[i]
+  title= title_list[i]
+  resp = spaghettiPlot2_nodataset(
+    data2use = data2stat,
+    x_var = X_var_,
+    y_var = col2use,
+    subgrp_var = "cluster",
+    cov_vars=NULL,
+    xLabel = 'age',
+    yLabel = "age equivalent",
+    modelType = "linear",
+    fname2save = NULL,
+    plot_dots = FALSE, plot_lines = TRUE,
+    dot_alpha = 1/10, line_alpha = 3/10,
+    xLimits = x_lim_, yLimits = y_lim_,
+    lineColor = "cluster", dotColor = "cluster",
+    legend_name = "Slope", maxIter = 500,
+    plot_title = title
+  )
+  
+  
+  #change color 
+  cols2use = color
+  font_size = 11
+  p_com = resp$p
+  p_com = p_com + scale_colour_manual(values = cols2use) + scale_fill_manual(values = cols2use)
+  p_com = p_com + theme_bw(base_size = font_size) +
+    theme(plot.title = element_text(hjust = 0.5, size=font_size)) +
+    guides(colour = FALSE, fill = FALSE)
+  
+  
+  plt[[i]] = p_com
+  # print(p_com)
+  
+  # change format to be readable in excel
+  lme2save = anova(resp$lme_model)
+  lme2save$`F value` = round(lme2save$`F value`, digits = 2)
+  lme2save$`DenDF` = round(lme2save$`DenDF`, digits = 2)
+  lme2save$`Sum Sq`= round(lme2save$`Sum Sq`, digits = 2)
+  lme2save$`Mean Sq` = round(lme2save$`Mean Sq`, digits = 2)
+  
+  #change p format to be readable in excel
+  for (j in 1:3){
+    if (lme2save[j,"Pr(>F)"]<= 0.001){
+      lme2save[j,"p-value_new"] = '<0.001'
+    }else if (lme2save[j,"Pr(>F)"]> 0.001){
+      
+      lme2save[j,"p-value_new"] = paste("=",as.character(round(lme2save[j,"Pr(>F)"],digits = 3),sep = ""))}
+  }
+  
+  
+  #correct p value for multiple comparison
+  for (a in 1:3){
+    p = lme2save[a,"Pr(>F)"]
+    print('p')
+    print(p)
+    p_adj_ = p.adjust(p, method = "fdr", n = size)
+    print('p_adj_')
+    print(p_adj_)
+    lme2save[a,'p_adj_temp'] = p_adj_
+  }
+  #change p-adj format to be readable in excel
+  print(lme2save)
+  for (d in 1:3){
+    if (lme2save[d,"p_adj_temp"]<= 0.001){
+      lme2save[d,"p_adj"] = '<0.001'
+    }else if (lme2save[d,"p_adj_temp"]> 0.001){
+      lme2save[d,"p_adj"] = paste("=",as.character(round(lme2save[d,"p_adj_temp"],digits = 3),sep = ""))}
+    
+  }
+  
+  lme_definitive_2save  = lme2save[,c("Sum Sq","Mean Sq","NumDF","DenDF","F value","p-value_new","p_adj")]
+  colnames(lme_definitive_2save) = c("Sum Sq","Mean Sq","NumDF","DenDF","F value","p-value","p_adj")
+  # save
+  #write.csv(lme_definitive_2save,file.path(result_path,paste(name_lme,col2use,".csv",sep='')))
+}
+```
+
+### produce the plots  
+```{r, message=FALSE, warning=FALSE ,error= FALSE}
+plt_old=list()
+for (i in 1:length(var2use)) {
+  col2use =var2use[i]
+  #col2use =vabs2use[i]
+  #plot line
+  spagh = spaghettiPlot(df=data2stat, 
+                        #x_var='mullen_ageMo',
+                        x_var=X_var_,
+                        y_var=col2use, 
+                        subgrp_var='cluster', 
+                        xLabel = 'months', 
+                        yLabel =col2use, 
+                        modelType = "linear",
+                        fname2save = NULL, plot_dots = FALSE, plot_lines = TRUE,
+                        ci_band = TRUE, pi_band = FALSE, #dot_alpha = 1/10, line_alpha = 1/50,
+                        #band_alpha = 1/2, xLimits = c(0, 60), yLimits = c(0,90), standardize = FALSE,
+                        #band_alpha = 1/2, xLimits = c(0, 60), yLimits = c(0,120), standardize = FALSE,
+                        band_alpha = 1/2, dot_alpha = 1/10, line_alpha = 3/10,
+                        xLimits = x_lim_, yLimits = y_lim_,
+                        color = wes_palette("IsleofDogs1"))
+  
+  print(spagh$p)   
+  plt_old[[i]]= spagh$p
+  (spagh$p)
+  # eventually save
+  #ggsave(file.path(plot_path,paste('vabslong_',col2use,'_UCSD.png',sep="")), spagh$p, width = 6 ,height = 4)
+  
+}
+
+
+# merge plots
+
+g = grid.arrange(
+  plt_old[[1]],
+  plt_old[[2]],
+  plt_old[[3]],
+  plt_old[[4]],
+  nrow = 2)
+g
+#ggsave(file.path(plot_path,paste('vabslong_summary_UCSD.png',sep="")), g, width = 8 ,height = 6)
+```
+
+### post hoc comparison for the lme model
+```{r, message=FALSE, warning=FALSE ,error= FALSE}
+library(emmeans)
+# for statistic
+data2stat = data[data$cluster=="high" | data$cluster=="med" |data$cluster=="low",]
+data2stat$cluster <- factor( data2stat$cluster,levels = c("high","med","low"));
+sub_list = c("high","med","low")
+
+# initialize some empty saving matrices
+ANOVA_post_hoc = as.data.frame(matrix(ncol=24,nrow=1))
+
+colnames_2save = c("col2use","sub_A","sub_B","SumSq_age","MeanSq_age","NumDF_age","DenDF_age","Fvalue_age","p-value_age",
+                   "p_adj_age", "SumSq_cluster","MeanSq_cluster","NumDF_cluster","DenDF_cluster",
+                   "Fvalue_cluster","p-value_cluster","p_adj_cluster",
+                   "SumSq_age:cluster","MeanSq_age:cluster","NumDF_age:cluster","DenDF_age:cluster",
+                   "Fvalue_age:cluster","p-value_age:cluster","p_adj_age:cluster")
+
+colnames(ANOVA_post_hoc) = colnames_2save
+
+# multiple comparison size
+size = 3 #number of comparisons for number of VABS scales
+sub_poss1 = c("high","high","med")
+sub_poss2 = c("med","low","low")
+
+for (i in (1:4)) {
+  col2use = var2use[i]
+  print(col2use)
+  
+  # post hoc done by hand!
+  for(o in 1:3){
+    
+    sub1 = sub_poss1[o]
+    substypeA =  subset(data2stat,data2stat$cluster==sub1)
+    #for (d in 1:3){
+    
+    sub2 = sub_poss2[o]
+    substypeB=  subset(data2stat,data2stat$cluster==sub2)
+        # define vars
+    
+        title= title_list[i]
+        x_var = X_var_
+        y_var = col2use
+        subgrp_var = "cluster"
+        maxIter = 500
+        df2use = rbind(substypeA,substypeB)
+       
+        # define the formula
+        form2use = as.formula(sprintf("%s ~ %s*%s + (%s|subjectId)", #(1|%s) + 
+                                  y_var, x_var, subgrp_var, x_var))# "dataset",
+        
+        ctrl = lmerControl(optCtrl=list(maxfun=maxIter), # lmerControl(optCtrl=list(maxfun=maxIter)
+                     check.conv.singular = .makeCC(action = "ignore",  tol = 1e-4),check.nobs.vs.nRE = "ignore")
+        # run the model
+        m_allgrps <- eval(substitute(lmer(formula = form2use, data = df2use, na.action = na.omit, control = ctrl)))
+        
+        # saving 
+        #print(sub1)
+        #print(sub2)
+        
+        lme2save = anova(m_allgrps)
+          lme2save$`F value` = round(lme2save$`F value`, digits = 2)
+          lme2save$`DenDF` = round(lme2save$`DenDF`, digits = 2)
+          lme2save$`Sum Sq`= round(lme2save$`Sum Sq`, digits = 2)
+          lme2save$`Mean Sq` = round(lme2save$`Mean Sq`, digits = 2)
+          
+          #change p-value format to be readable in excel
+          for (j in 1:3){
+             if (lme2save[j,"Pr(>F)"]<= 0.001){
+               lme2save[j,"p-value_new"] = '<0.001'
+             }else if (lme2save[j,"Pr(>F)"]> 0.001){
+               lme2save[j,"p-value_new"] = paste("=",as.character(round(lme2save[j,"Pr(>F)"],digits = 3),sep = ""))}
+               
+          }
+          
+          #correct p value for multiple comparison
+          for (a in 1:3){
+            p = lme2save[a,"Pr(>F)"]
+            p_adj_ = p.adjust(p, method = "fdr", n = size)
+            lme2save[a,'p_adj_temp'] = p_adj_
+          }
+          
+          #change p-adj format to be readable in excel
+          for (d in 1:3){
+             if (lme2save[d,"p_adj_temp"]<= 0.001){
+               lme2save[d,"p_adj"] = '<0.001'
+             }else if (lme2save[d,"p_adj_temp"]> 0.001){
+               lme2save[d,"p_adj"] = paste("=",as.character(round(lme2save[d,"p_adj_temp"],digits = 3),sep = ""))}
+               
+          }
+            #print(lme2save)
+        #save the post-hoc lme complete
+        lm = lme2save[,c("Sum Sq","Mean Sq","NumDF","DenDF","F value","p-value_new","p_adj")]
+        colnames(lm) = c("Sum Sq","Mean Sq","NumDF","DenDF","F value","p-value","p_adj")
+        #write.csv(lm,file.path(result_path,"post_hoc",post_hoc_folder,paste(name_posthoc,col2use,"_",sub1,"_",sub2,".csv",sep='')))
+        
+        #save in a unique table
+        vect2save = c(col2use,sub1,sub2,as.list(as.vector(t(lm))))
+        ANOVA_post_hoc = rbind(ANOVA_post_hoc,vect2save) 
+      }
+}
+
+#write.csv(ANOVA_post_hoc[2:length(ANOVA_post_hoc$col2use),],file.path(result_path,name_sum_post_hoc_)) 
+```
+
+
+### SINGLE GROUP PLOTS uncomment here if you want plot single group trajectories only
+```{r, message=FALSE, warning=FALSE ,error= FALSE}
+# x_axis = 'mullen_ageMo'
+# color_list = c("#FF9933","#3399CC","#009900","#CC0099")
+# group_list = c("high",'med','low')
+# plt_sub = list()
+# lay =rbind(c(1,2),c(3,4))
+# 
+# for (subtype in 1: length(group_list)){
+# # select the subtype
+# data2use = data[data$cluster== group_list[subtype],]
+# data2use$cluster <- factor( data2use$cluster,levels = group_list[subtype]);
+#       #select the variables to plot
+#       for (var in 1:length(var2use)){
+#       col2use = var2use[var]
+#       Single = ggplot(data = data2use, aes(x =get(x_axis), y = get(col2use), group = subjectId))
+#       Single = Single + geom_line(aes(colour = group_list[subtype] ), alpha = 0.5) + guides(alpha = FALSE)
+#       Single = Single + scale_colour_manual(values=color_list[subtype])
+#       Single = Single + theme(legend.title=element_blank()) + xlab('vine_agemo') + ylab(col2use)+ xlim(0,60)
+#       #print(Single)
+#       plt_sub[[var]]=Single
+#       }
+#      new_grid_sub= grid.arrange(
+#      plt_sub[[1]],
+#      plt_sub[[2]],
+#      plt_sub[[3]],
+#      plt_sub[[4]],
+#      layout_matrix = lay)
+#      new_grid_sub
+# 
+# }
+```
+
+### DOTS AND LINES ONLY PLOTS  uncomment if you want plots only with lines and/or dots ######################################
+```{r, message=FALSE, warning=FALSE ,error= FALSE}
+######### DOTS AND LINES ONLY PLOTS  uncomment if you want plots only with lines and/or dots ######################################
+# plt_p1=list()
+# plt_p =  list()
+# for (i in 1:length(var2use)) {
+#         col2use =var2use[i]
+# 
+#     spagh = spaghettiPlot_new(df=data2use,
+#                           x_var=X_var_
+#                           y_var=col2use,
+#                           subgrp_var='cluster',
+#                           xLabel = 'age',
+#                           yLabel =col2use,
+#                           modelType = "linear",
+#                           fname2save = NULL, plot_dots = FALSE, plot_lines =TRUE,
+#                           ci_band = TRUE, pi_band = FALSE, dot_alpha = 1/10, line_alpha = 1/10,
+#                           band_alpha = 1/2, xLimits = c(0, 60), yLimits = c(0,90), standardize = FALSE,
+#                           #color = c("#999999","#999999","#999999","#999999")
+#                           color = c("#333333","#333333","#333333","#333333"))#wes_palette("IsleofDogs1")
+#                             #c("#FF9933","#3399CC","#009900","#CC0099")) # ask mike standardized
+#     
+#     print(spagh$p)
+#     print(spagh$p1)
+#     plt_p1[[i]] = spagh$p1
+#     #ggsave(file.path(plot_path,paste('onlylines_',col2use,'_LINES_col.png',sep="")), spagh$p, width = 6 ,height = 4)
+#     plt_p[[i]] = spagh$p
+#     print(col2use)
+#     #ggsave(file.path(plot_path,paste('FORMIKE_',col2use,'_LINES_summary.png',sep="")), spagh$p, width = 6 ,height = 4)
+# }
+
+```
+
+
+###   get betas from LME (rate of growth)
+this part is meaningful only if considering the MSEL.
+```{r,message=FALSE, warning=FALSE ,error= FALSE}
+# define my subtype list
+subtype_list = c("high","med","low")
+#initialize an empty matrix to save betas in a comprhensible way
+betas_matrix= as.data.frame(matrix(nrow=4,ncol=3))
+rownames(betas_matrix)= var2use
+colnames(betas_matrix)= subtype_list
+
+
+# run the nestedfor-loop 
+for (k in 1:length(subtype_list)){
+   #extracting the betas:
+  subtype2use = subtype_list[k]
+  subset_group = data2use[data2use$cluster== subtype2use ,]
+  for (i in 1:length(var2use)){
+        col2use =var2use[i]
+        x_var='mullen_ageMo'
+        y_var=col2use 
+        #subgrp_var = 'hybrid_cluster'
+        fx_form = as.formula(sprintf("%s ~ %s", y_var, x_var))   # fixed effect --> delate the subtype because I                                                                                         want betas only from one and not a comparison between them?
+        rx_form = as.formula(sprintf("~ %s|subjectId",x_var))                 # random effect
+        ctrl <- lmeControl(opt='optim', msMaxIter = 500)
+        ml_method = "ML"
+        m_allgrps <- eval(substitute(lme(fixed = fx_form, random = rx_form, data = subset_group,
+                                     na.action = na.omit, control=ctrl, method = ml_method), 
+                                     list(fx_form = fx_form, rx_form = rx_form)))
+    
+        print (subtype2use)
+        print (col2use)
+        print(coef(summary(m_allgrps)))
+        coef = coef(summary(m_allgrps))[2,1]
+        betas_matrix[i,k] = coef
+  }
+  
+}
+print(betas_matrix)
+write.csv(betas_matrix,file.path(result_path,'betas_matrix_UCSD_REVAL_MSEL.csv'))
+```
+
+### uncomment here if you want to check clusters numerosity and sex distribution
+```{r,warning=FALSE,error=FALSE,message=FALSE, include=FALSE}
+# take only T1
+new_data = data[data$time==1, ]
+
+# take only ASD
+asd_only = new_data[new_data$cluster=="high"|new_data$cluster=="med"|new_data$cluster=="low",]
+asd_only$cluster <- factor( asd_only$cluster,levels = c('high','med','low'))
+asd_only$gender <- factor( asd_only$gender,levels = c('F','M'))
+
+
+# exclude subjects with incert gender
+asd_only = asd_only[asd_only$gender %in% c("M","F"),]
+gender_table = table(asd_only$cluster,asd_only$gender)
+
+# check if there is difference in the percentage on F/M in the clusters
+# all tre subtypes together
+chisq <- chisq.test(t(gender_table))
+print(chisq)
+print(gender_table)
+# # pairwise comparison
+# sub_1_poss = c('high','high','med')
+# sub_2_poss = c('med','low','low')
+# for (d in 1:3){
+#   list_=c(sub_1_poss[d],sub_2_poss[d])
+#   subset_ = subset(asd_only,asd_only$cluster %in% list_)
+#   subset_$cluster = factor(subset_$cluster, levels = list_)
+#   gender_table_ = table(subset_$cluster,subset_$gender)
+#   hisq <- chisq.test(t(gender_table_))
+#   print(gender_table_)
+#   print(hisq)
+# }
+
+# there is no difference in the proportion of M/F across subtypes, p>0.05
+
+```
+### uncomment here if you want some plots
+```{r, include = FALSE,message=FALSE, warning=FALSE ,error= FALSE}
+# are there any differencesc in AGE at T1
+color = c("#FF9933","#3399CC","#009900","#CC0099")
+                    
+data2plot = new_data[new_data$cluster=="high" | new_data$cluster=="med" |new_data$cluster=="low",]
+data2plot$cluster <- factor( data2plot$cluster,levels = c('high','med','low'));
+#age plot
+p = ggplot(data =data2plot ,aes_string(x = 'cluster', y = 'vine_agemo', color='cluster') )
+p = p + geom_jitter() + geom_boxplot(fill = NA, colour = "#000000", outlier.shape = NA)
+p = p + scale_colour_manual(values = color)
+p = p + guides(colour = FALSE)
+p = p + scale_colour_manual(values = color)
+p = p + xlab("") + ylab('months')
+p = p + ggtitle('age at T1')
+p = p + theme_bw()
+p = p + theme(plot.title = element_text(size = 10, face = "bold",hjust = 0.5))
+p = p + theme(axis.text.x = element_text(face="bold", size=10))
+p = p + theme(axis.text.y = element_text(face="bold", size=10))
+p = p + scale_y_continuous( limits=c(0, 72))
+                    
+# sex plot
+sex =ggplot(na.omit(subset(asd_only, select = c(gender,cluster))), aes(x= gender,  group=cluster)) + 
+    geom_bar(aes(y = ..prop.., fill = factor(..x..)), stat="count") +
+    geom_text(aes( label = scales::percent(..prop..),
+                   y= ..prop.. ), stat= "count", vjust = -.5,size=2) +
+    labs(y = "Percent",fill = "") +
+    facet_grid(~cluster) +
+    scale_y_continuous(labels = scales::percent)+ ylim(0,0.87)
+
+sex = sex + ggtitle('Gender distribution')
+sex = sex  + theme_bw()
+sex = sex  + theme(plot.title = element_text(size = 10, face = "bold",hjust = 0.5))
+sex = sex  + theme(axis.text.x = element_text(face="bold", size=10))
+sex = sex  + theme(axis.text.y = element_text(face="bold", size=10))
+sex
+
+lay =rbind(c(1,1,2,2,2,2)
+             )
+
+# pdf(paste(plot_path,'/UCSD_age_sex.pdf', sep=""),width = 5, height = 3.5 )
+new_grid = grid.arrange(
+     p,sex,
+      layout_matrix = lay)
+# dev.off()
+```
+
+### uncomment here if you want to chek lme results inserting GENDER as covariate
+```{r, echo = FALSE, include = FALSE}
+# do lme with gender as covariate
+# prepare the dataset
+data2stat_gender =  data2stat[data2stat$gender %in% c ("M","F"),]
+data2stat_gender$gender =  factor(data2stat_gender$gender,levels = c('F','M'))
+size = 4
+# run lme
+for (i in 1:length(var2use)) {
+  col2use =var2use[i]
+  title= title_list[i]
+  resp = spaghettiPlot2_nodataset(
+    data2use = data2stat_gender,
+    x_var = X_var_,
+    y_var = col2use,
+    subgrp_var = "cluster",
+    cov_vars='gender',
+    xLabel = 'age',
+    yLabel = "age equivalent",
+    modelType = "linear",
+    fname2save = NULL,
+    plot_dots = FALSE, plot_lines = TRUE,
+    dot_alpha = 1/10, line_alpha = 3/10,
+    xLimits = x_lim_, yLimits = y_lim_,
+    lineColor = "cluster", dotColor = "cluster",
+    legend_name = "Slope", maxIter = 500,
+    plot_title = title
+  )
+  
+  # change format to be readable in excel
+  lme2save = anova(resp$lme_model)
+  lme2save$`F value` = round(lme2save$`F value`, digits = 2)
+  lme2save$`DenDF` = round(lme2save$`DenDF`, digits = 2)
+  lme2save$`Sum Sq`= round(lme2save$`Sum Sq`, digits = 2)
+  lme2save$`Mean Sq` = round(lme2save$`Mean Sq`, digits = 2)
+  
+  #change p format to be readable in excel
+  for (j in 1:4){
+    if (lme2save[j,"Pr(>F)"]<= 0.001){
+      lme2save[j,"p-value_new"] = '<0.001'
+    }else if (lme2save[j,"Pr(>F)"]> 0.001){
+      
+      lme2save[j,"p-value_new"] = paste("=",as.character(round(lme2save[j,"Pr(>F)"],digits = 3),sep = ""))}
+  }
+  
+  
+  #correct p value for multiple comparison
+  for (a in 1:4){
+    p = lme2save[a,"Pr(>F)"]
+    #print('p')
+    #print(p)
+    p_adj_ = p.adjust(p, method = "fdr", n = size)
+    #print('p_adj_')
+    #print(p_adj_)
+    lme2save[a,'p_adj_temp'] = p_adj_
+  }
+  #change p-adj format to be readable in excel
+ # print(lme2save)
+  for (d in 1:4){
+    if (lme2save[d,"p_adj_temp"]<= 0.001){
+      lme2save[d,"p_adj"] = '<0.001'
+    }else if (lme2save[d,"p_adj_temp"]> 0.001){
+      lme2save[d,"p_adj"] = paste("=",as.character(round(lme2save[d,"p_adj_temp"],digits = 3),sep = ""))}
+    
+  }
+  
+  lme_definitive_2save  = lme2save[,c("Sum Sq","Mean Sq","NumDF","DenDF","F value","p-value_new","p_adj")]
+  colnames(lme_definitive_2save) = c("Sum Sq","Mean Sq","NumDF","DenDF","F value","p-value","p_adj")
+  # save
+  #write.csv(lme_definitive_2save,file.path(result_path,paste("gender_as_cov",name_lme,col2use,".csv",sep='')))
+}
+```
+
