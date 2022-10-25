@@ -10,24 +10,30 @@ in this script we are going to build the hybrid model by combining the clusters 
 ### load packages,data and define paths
 ```{r, message=FALSE, warning=FALSE, echo=FALSE}
 # load packages
-
 library(easypackages)
-libraries('here','ggplot2','gplots','reshape2','gridExtra','ggpubr')
-library(dplyr)
+library(MetBrewer)
+library(emmeans)
+library(nlme)
+library(wesanderson)
+library(openxlsx)
+libraries('here','ggplot2','gplots','reshape2','gridExtra')
 
-# define paths
-work_dir = '/Users/vmandelli/OneDrive - Fondazione Istituto Italiano Tecnologia/vineland_proj_new'
+#define paths
+work_dir = '/Users/vmandelli/OneDrive - Fondazione Istituto Italiano Tecnologia/vineland_proj_edition'
 code_path = file.path(work_dir,'code','R')
-uscd_data_path = file.path(work_dir,'results','FINAL_correct')
-#ndar_data_path = file.path(work_dir,'results','vero_results')
-result_path = file.path(work_dir,'results','FINAL_correct')
-plot_path = file.path(work_dir,'plots',"FINAL_correct")
+uscd_data_path = file.path(work_dir,'results')
+result_path = file.path(work_dir,'results')
+plot_path = file.path(work_dir,'plots')
+color = wes_palette("IsleofDogs1")
+
+#load some fucntions
 source(file.path(code_path,"spaghettiPlot_new.R"))
 source(file.path(code_path,"spaghettiPlot.R"))
 source(file.path(code_path,"spaghettiPlot2_nodataset.R"))
+source(file.path(code_path,"alluvial.R"))
 
 # load data
-data <- read.csv(file.path(result_path,'uscd_4modelcluster_longitudinal.csv'))
+data <- read.csv(file.path(result_path,'UCSD_VABSnorm_longitudinal.csv'))
 subjetc_list = unique(data$subjectId)
 td_data <- read.csv(file.path(result_path,'TD_only.csv'))
 ```
@@ -38,52 +44,56 @@ combining labels from reval and VABS norms
 ```{r, message=FALSE, warning=FALSE}
 for (sub in (1:length(subjetc_list))){
   subset_ = subset (data,data$subjectId==subjetc_list[sub])
-  
-  if (subset_[1,'cluster']== "high" & 
+
+  if (subset_[1,'cluster']== "high" &
       subset_[1,'VABSnorms_cluster'] == "high"){
     data[data$subjectId==subjetc_list[sub],'hybrid_cluster']="Rhigh-Vhigh"
   }
-  else if (subset_[1,'cluster']== "high" & 
+  else if (subset_[1,'cluster']== "high" &
            subset_[1,'VABSnorms_cluster'] == "med"){
     data[data$subjectId==subjetc_list[sub],'hybrid_cluster']="Rhigh-Vmed"
   }
-  else if (subset_[1,'cluster']== "high" & 
+  else if (subset_[1,'cluster']== "high" &
            subset_[1,'VABSnorms_cluster'] == "low"){
     data[data$subjectId==subjetc_list[sub],'hybrid_cluster']="Rhigh-Vlow"
   }
-  else if (subset_[1,'cluster']== "med" & 
+  else if (subset_[1,'cluster']== "med" &
            subset_[1,'VABSnorms_cluster'] == "high"){
     data[data$subjectId==subjetc_list[sub],'hybrid_cluster']="Rmed-Vhigh"
   }
-  else if (subset_[1,'cluster']== "med" & 
+  else if (subset_[1,'cluster']== "med" &
            subset_[1,'VABSnorms_cluster'] == "med"){
     data[data$subjectId==subjetc_list[sub],'hybrid_cluster']="Rmed-Vmed"
   }
-  else if (subset_[1,'cluster']== "med" & 
+  else if (subset_[1,'cluster']== "med" &
            subset_[1,'VABSnorms_cluster'] == "low"){
     data[data$subjectId==subjetc_list[sub],'hybrid_cluster']="Rmed-Vlow"
   }
-  else if (subset_[1,'cluster']== "low" & 
+  else if (subset_[1,'cluster']== "low" &
            subset_[1,'VABSnorms_cluster'] == "high"){
     data[data$subjectId==subjetc_list[sub],'hybrid_cluster']="Rlow-Vhigh"
   }
-  else if (subset_[1,'cluster']== "low" & 
+  else if (subset_[1,'cluster']== "low" &
            subset_[1,'VABSnorms_cluster'] == "med"){
     data[data$subjectId==subjetc_list[sub],'hybrid_cluster']="Rlow-Vmed"
   }
-  else if (subset_[1,'cluster']== "low" & 
+  else if (subset_[1,'cluster']== "low" &
            subset_[1,'VABSnorms_cluster'] == "low"){
     data[data$subjectId==subjetc_list[sub],'hybrid_cluster']="Rlow-Vlow"
   }
 }
 
-data$hybrid_cluster = factor(data$hybrid_cluster, levels = c('Rhigh-Vhigh','Rhigh-Vmed','Rhigh-Vlow','Rmed-Vhigh','Rmed-Vmed',
-                                                             'Rmed-Vlow','Rlow-Vhigh','Rlow-Vmed','Rlow-Vlow'))
+
+
+data$hybrid_cluster = factor(data$hybrid_cluster, levels = c('Rhigh-Vhigh','Rhigh-Vmed','Rhigh-Vlow','Rmed-Vhigh','Rmed-Vmed','Rmed-Vlow','Rlow-Vhigh','Rlow-Vmed','Rlow-Vlow'))
 
 # check the clusters labels and numebrosity 
+
 #print(table(data$hybrid_cluster)/5)
+#hybrid clusters numerosity
 table2save = table(data$hybrid_cluster)/5
-#write.csv(table2save,file.path(result_path,'UCSD_hybridcluster_numerosity.csv'))
+write.csv(table2save,file.path(result_path,'UCSD_hybridcluster_numerosity.csv'))
+
 data$cluster = factor(data$cluster,level = c("high","med","low") )
 data$VABSnorms_cluster = factor(data$VABSnorms_cluster,level = c("high","med","low") )
 print(table (data$cluster,data$VABSnorms_cluster)/5)
@@ -91,8 +101,9 @@ table2save = table (data$cluster,data$VABSnorms_cluster)/5
 #write.csv(table2save,file.path(result_path,'UCSD_hybridcluster_fromRorV.csv'))
 table_VABSnorm =  table(data$VABSnorms_cluster)/5
 #write.csv(table_VABSnorm,file.path(result_path,'UCSD_VABSnorm_numerosity.csv'))
+
 #save data for comapring with older_stratification
-#write.csv(data,file.path(result_path,'final_data_withallclusters.csv'))
+write.csv(data,file.path(result_path,'final_data_withallclusters.csv'))
 ```
 
 ### prapare variable sto save results from lme
@@ -157,47 +168,27 @@ for (i in 1:length(var2use)) {
   plt_mels[[i]] = p_com
   print(p_com)
   #save the plot
-  ggsave(file.path(plot_path,paste(col2use,'_hybrid.png',sep="")),p_com, width = 6 ,height = 4)
+  ggsave(file.path(plot_path,paste(col2use,'_hybrid.png',sep="")),p_com, width = 4.5 ,height = 4)
   
   # saving
   lme2save = anova(resp$lme_model)
-  lme2save$`F value` = round(lme2save$`F value`, digits = 2)
-  lme2save$`DenDF` = round(lme2save$`DenDF`, digits = 2)
-  lme2save$`Sum Sq`= round(lme2save$`Sum Sq`, digits = 2)
-  lme2save$`Mean Sq` = round(lme2save$`Mean Sq`, digits = 2)
-  
-  for (j in 1:3){
-    if (lme2save[j,"Pr(>F)"]<= 0.001){
-      lme2save[j,"p-value_new"] = '<0.001'
-    }else if (lme2save[j,"Pr(>F)"]> 0.001){
-      lme2save[j,"p-value_new"] = paste("=",as.character(round(lme2save[j,"Pr(>F)"],digits = 3),sep = ""))}
-  }
   
   
   #correct p value for multiple comparison
   for (a in 1:3){
     p = lme2save[a,"Pr(>F)"]
-    print('p')
-    print(p)
+    #print('p')
+    #print(p)
     p_adj_ = p.adjust(p, method = "fdr", n = size)
-    print('p_adj_')
-    print(p_adj_)
+   # print('p_adj_')
+    #print(p_adj_)
     lme2save[a,'p_adj_temp'] = p_adj_
   }
-  #change p-adj format to be readable in excel
-  print(lme2save)
-  for (d in 1:3){
-    if (lme2save[d,"p_adj_temp"]<= 0.001){
-      lme2save[d,"p_adj"] = '<0.001'
-    }else if (lme2save[d,"p_adj_temp"]> 0.001){
-      lme2save[d,"p_adj"] = paste("=",as.character(round(lme2save[d,"p_adj_temp"],digits = 3),sep = ""))}
-    
-  }
   
-  lme_definitive_2save  = lme2save[,c("Sum Sq","Mean Sq","NumDF","DenDF","F value","p-value_new","p_adj")]
+  
+  lme_definitive_2save  = lme2save[,c("Sum Sq","Mean Sq","NumDF","DenDF","F value","Pr(>F)","p_adj_temp")]
   colnames(lme_definitive_2save) = c("Sum Sq","Mean Sq","NumDF","DenDF","F value","p-value","p_adj")
-  write.csv(lme_definitive_2save,file.path(result_path,paste('ANOVA_lme_spagh2_UCSD_hybrid_MELS_',col2use,".csv")))
-  
+ write.xlsx(lme_definitive_2save,file.path(result_path,'UCSD_MSEL_HYBRID',paste('ANOVA_lme_spagh2_UCSD_hybrid_MELS_',col2use,".xlsx")))
   # AIC
   AIC_hybrid[i]= AIC(resp$lme_model)
   print( AIC(resp$lme_model))
@@ -261,21 +252,8 @@ for (i in (1:4)) {
     m_allgrps <- eval(substitute(lmer(formula = form2use, data = df2use, na.action = na.omit, control = ctrl)))
     
     # saving 
-    #print(sub1)
-    #print(sub2)
-    lme2save = anova(m_allgrps)
-    lme2save$`F value` = round(lme2save$`F value`, digits = 2)
-    lme2save$`DenDF` = round(lme2save$`DenDF`, digits = 2)
-    lme2save$`Sum Sq`= round(lme2save$`Sum Sq`, digits = 2)
-    lme2save$`Mean Sq` = round(lme2save$`Mean Sq`, digits = 2)
     
-    for (j in 1:3){
-      if (lme2save[j,"Pr(>F)"]<= 0.001){
-        lme2save[j,"p-value_new"] = '<0.001'
-      }else if (lme2save[j,"Pr(>F)"]> 0.001){
-        lme2save[j,"p-value_new"] = paste("=",as.character(round(lme2save[j,"Pr(>F)"],digits = 3),sep = ""))}
-      
-    }
+    lme2save = anova(m_allgrps)
     
     #correct p value for multiple comparison
     for (a in 1:3){
@@ -283,20 +261,12 @@ for (i in (1:4)) {
       p_adj_ = p.adjust(p, method = "fdr", n = size)
       lme2save[a,'p_adj_temp'] = p_adj_
     }
-    
-    #change p-adj format to be readable in excel
-    for (d in 1:3){
-      if (lme2save[d,"p_adj_temp"]<= 0.001){
-        lme2save[d,"p_adj"] = '<0.001'
-      }else if (lme2save[d,"p_adj_temp"]> 0.001){
-        lme2save[d,"p_adj"] = paste("=",as.character(round(lme2save[d,"p_adj_temp"],digits = 3),sep = ""))}
-      
-    }
-    #print(lme2save)
+   
     #save the post-hoc lme complete
-    lm = lme2save[,c("Sum Sq","Mean Sq","NumDF","DenDF","F value","p-value_new","p_adj")]
+    lm = lme2save[,c("Sum Sq","Mean Sq","NumDF","DenDF","F value","Pr(>F)","p_adj_temp")]
     colnames(lm) = c("Sum Sq","Mean Sq","NumDF","DenDF","F value","p-value","p_adj")
-    write.csv(lm,file.path(result_path,"post_hoc",'MELS_UCSD_hybrid',paste('Post_hoc_ANOVA_lme_spagh2_UCSD_hybrid_',col2use,"_",sub1,"_",sub2,".csv",sep='')))
+  
+    write.xlsx(lm,file.path(result_path,"post_hoc",'MELS_UCSD_hybrid',paste('Post_hoc_ANOVA_lme_spagh2_UCSD_hybrid_',col2use,"_",sub1,"_",sub2,".xlsx",sep='')))
     #save in a unique table
     vect2save = c(col2use,sub1,sub2,as.list(as.vector(t(lm))))
     ANOVA_post_hoc = rbind(ANOVA_post_hoc,vect2save) 
@@ -304,7 +274,8 @@ for (i in (1:4)) {
 }
 
 
-write.csv(ANOVA_post_hoc[2:length(ANOVA_post_hoc$col2use),],file.path(result_path,"Posthoc_NDAR_hybrid.csv")) 
+
+write.xlsx(ANOVA_post_hoc[2:length(ANOVA_post_hoc$col2use),],file.path(result_path,"Posthoc_UCSD_hybrid.xlsx"))
 ```
 
 
@@ -334,13 +305,14 @@ AIC2save = round(rbind(AIC_matrix[c('REVAL' ,'VABSnorm'),],AIC_hybrid_df))
 write.csv(AIC2save,file.path(result_path,'AIC_matrix_all.csv'))
 
 # plot
-ylim_list = list(c(12200,12600),c(11000,11400),c(13000,13400),c(12600,13000))
+ylim_list = list(c(11700,12000),c(10500,10800),c(12500,12800),c(12200,12500))
 plot_aic= list()
 melt_AIC2plot$model = factor(melt_AIC2plot$model, levels = c('REVAL','VABSnorm','Hybrid Model'))
+
 for (i in 1:4){
   tlim = ylim_list[[i]]
   data2plot = melt_AIC2plot[melt_AIC2plot$variable == var2use[i],]
-  plt = ggplot(data2plot,aes(variable,value,fill=model))+
+  plt = ggplot(data2plot,aes(model,value,fill=model))+
     geom_bar(stat="identity",position="dodge")+
     coord_cartesian(ylim = tlim) + 
     scale_fill_manual(values=c("#cccccc","#666666","#000000"))+
@@ -361,7 +333,7 @@ aic_plot= grid.arrange(
   ncol = 4
 )
 show(aic_plot)    
-ggsave(file.path(plot_path,'AIC_plot.png'), aic_plot, width = 6 ,height = 4)
+ggsave(file.path(plot_path,'AIC_plot.pdf'), aic_plot, width = 6 ,height = 4)
 ```
 
 ### get out betas from LME 
@@ -423,48 +395,45 @@ write.csv(round(betas_matrix,digits = 2),file.path(result_path,'betas_matrix_hyb
 these plots are going to be insert in the shinyapp. They represent the developmental trajectory of a single subtypes comapred to the TD trajectory
 ```{r, message=FALSE, warning=FALSE, echo = FALSE}
 # # intitalize useful variables
-# title_list = c("Visual Reception","Fine Motor",
-#                "Receptive Language","Expressive Language")
-# var2use = c('mullen_VR_AgeEq','mullen_FM_AgeEq','mullen_RL_AgeEq','mullen_EL_AgeEq')
-# 
-# # plot
-# for (subtype2use in subtype_list){
-#   subset_group = data2use[data2use$hybrid_cluster== subtype2use |data2use$hybrid_cluster=="TD" ,]
-#   subset_group$hybrid_cluster <- factor( subset_group$hybrid_cluster,levels = c(subtype2use,"TD"));
-#   plt_sub=list()
-#   i=1
-#   print(subtype2use)
-#   for(col2use in var2use){
-#     #col2use =var2use[i]
-#     #plot
-#     print(col2use)
-#     print(i)
-#     spagh = spaghettiPlot(df=subset_group,
-#                           x_var='mullen_ageMo',
-#                           y_var=col2use,
-#                           subgrp_var='hybrid_cluster',
-#                           xLabel = 'chronological age (months)',
-#                           yLabel = 'age equivalent (months)',
-#                           modelType = "linear",
-#                           fname2save = NULL, plot_dots = FALSE, plot_lines = TRUE,
-#                           ci_band = TRUE, pi_band = FALSE, dot_alpha = 1/10, line_alpha = 1/50,
-#                           band_alpha = 1/2, xLimits = c(0, 60), yLimits = c(0,90), standardize = FALSE,
-#                           color = c("#FF9933","#3399CC","#009900","#CC0099"))
-#     #print(spagh$p)
-#     spagh$p=spagh$p +theme(legend.position = "none") + labs(title = title_list[i],color = "")
-#     
-#     plt_sub[[col2use]]= spagh$p
-#     #print(spagh$p)
-#     i=i+1}
-#   g = ggarrange(
-#     plt_sub[[1]],
-#     plt_sub[[2]],
-#     plt_sub[[3]],
-#     plt_sub[[4]],
-#     ncol=2,nrow = 2)
-#   print(g)
-#   #ggsave(file.path(plot_path, paste("MULLEN_",subtype2use,".png",sep='')), g)
-# }
+title_list = c("Visual Reception","Fine Motor",
+               "Receptive Language","Expressive Language")
+var2use = c('mullen_VR_AgeEq','mullen_FM_AgeEq','mullen_RL_AgeEq','mullen_EL_AgeEq')
+
+# plot
+for (subtype2use in subtype_list){
+  subset_group = data2use[data2use$hybrid_cluster== subtype2use |data2use$hybrid_cluster=="TD" ,]
+  subset_group$hybrid_cluster <- factor( subset_group$hybrid_cluster,levels = c(subtype2use,"TD"));
+  plt_sub=list()
+  i=1
+  print(subtype2use)
+  for(col2use in var2use){
+    #col2use =var2use[i]
+    #plot
+    print(col2use)
+    print(i)
+    spagh = spaghettiPlot(df=subset_group,
+                          x_var='mullen_ageMo',
+                          y_var=col2use,
+                          subgrp_var='hybrid_cluster',
+                          xLabel = 'chronological age (months)',
+                          yLabel = 'age equivalent (months)',
+                          modelType = "linear",
+                          fname2save = NULL, plot_dots = FALSE, plot_lines = TRUE,
+                          ci_band = TRUE, pi_band = FALSE, dot_alpha = 1/10, line_alpha = 1/50,
+                          band_alpha = 1/2, xLimits = c(0, 60), yLimits = c(0,90), standardize = FALSE,
+                          color = c("#FF9933","#3399CC","#009900","#CC0099"))
+    #print(spagh$p)
+    spagh$p=spagh$p +theme(legend.position = "none") + labs(title = title_list[i],color = "")
+
+    plt_sub[[col2use]]= spagh$p
+    #print(spagh$p)
+    i=i+1}
+  library(patchwork)
+  pfd2save = plt_sub[[1]] + plt_sub[[2]] + plt_sub[[3]] + plt_sub[[4]]
+  
+  print(pfd2save)
+  ggsave(file.path(plot_path, 'shinyplot',paste("MULLEN_",subtype2use,".pdf",sep='')),pfd2save)
+}
 
 ```
 

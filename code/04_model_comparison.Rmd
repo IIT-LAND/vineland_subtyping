@@ -13,17 +13,22 @@ in this script we create subtype of autistic adaptive behavior by looking at the
 ### load packages, functions, data and define paths
 ```{r,echo=FALSE, message=FALSE,warning=FALSE}
 #load packages 
+# load packages
 library(easypackages)
-libraries('here','ggplot2','gplots','reshape2','gridExtra','ggalluvial','nlme','emmeans')
+library(MetBrewer)
+library(emmeans)
+library(nlme)
+library(wesanderson)
+library(openxlsx)
+libraries('here','ggplot2','gplots','reshape2','gridExtra')
 
-# define paths
-work_dir = '/Users/vmandelli/OneDrive - Fondazione Istituto Italiano Tecnologia/vineland_proj_new'
+#define paths
+work_dir = '/Users/vmandelli/OneDrive - Fondazione Istituto Italiano Tecnologia/vineland_proj_edition'
 code_path = file.path(work_dir,'code','R')
-#uscd_data_path = file.path(work_dir,'results','prova4soggetti')
-uscd_data_path = file.path(work_dir,'results','FINAL_correct')
-ndar_data_path = file.path(work_dir,'results','FINAL_correct')
-result_path = file.path(work_dir,'results','FINAL_correct')
-plot_path = file.path(work_dir,'plots','FINAL_correct')
+uscd_data_path = file.path(work_dir,'results')
+result_path = file.path(work_dir,'results')
+plot_path = file.path(work_dir,'plots')
+color = wes_palette("IsleofDogs1")
 
 #load some fucntions
 source(file.path(code_path,"spaghettiPlot_new.R"))
@@ -32,7 +37,8 @@ source(file.path(code_path,"spaghettiPlot2_nodataset.R"))
 source(file.path(code_path,"alluvial.R"))
 
 #load data
-data <- read.csv(file.path(uscd_data_path,'ucsd_long_allSubj_clusters.csv'))
+data <- read.csv(file.path(uscd_data_path,'ucsd_long_allSubj_clusters_061022.csv'))
+
 ```
 
 ### reformat data 
@@ -55,13 +61,13 @@ data$mullen_ageMo = round(data$mullen_ageMo)
 # remane in a more comprehansible format
 # for domain
 for (i in (1:length(data$cluster))) {
-  if (data[i, 'cluster'] == '2.0'){
+  if (data[i, 'cluster'] == '1.0'){
     data[i,'cluster'] = "high"
   }
-  else if (data[i, 'cluster'] == '3.0'){
+  else if (data[i, 'cluster'] == '0.0'){
     data[i,'cluster'] = "med"
   }
-  else if (data[i, 'cluster'] == '1.0'){
+  else if (data[i, 'cluster'] == '2.0'){
     data[i,'cluster'] = "low"
   }
 }
@@ -71,7 +77,7 @@ data$cluster <- as.factor(data$cluster)
 data[data == 0] <- NA   
 
 # define variables to use
-var2use = c('mullen_VR_AgeEq','mullen_FM_AgeEq','mullen_RL_AgeEq','mullen_EL_AgeEq')
+#var2use = c('mullen_VR_AgeEq','mullen_FM_AgeEq','mullen_RL_AgeEq','mullen_EL_AgeEq')
 ```
 
 ### compute clusters from Vineland TD norms
@@ -111,7 +117,10 @@ data4normativemodel$VABSnorms_cluster <- factor( data4normativemodel$VABSnorms_c
 data4normativemodel_T1 = data4normativemodel[!duplicated(data4normativemodel$subjectId), ]
 VABSnorms_alluvial <- plotalluvial (data4normativemodel_T1,'subjectId','gender','cluster','VABSnorms_cluster', 'REVAL vs VABSnorms')
 # print the table
-print(table(data4normativemodel_T1$cluster, data4normativemodel_T1$VABSnorms_cluster)) #row REVAL col VABSnorms
+table_all  = table(data4normativemodel_T1$cluster, data4normativemodel_T1$VABSnorms_cluster) #row REVAL col VABSnorms
+print(table_all)
+#save it
+write.csv(table_all,file.path(result_path,'Alluvial_REVAL_VABSnorm.csv'))
 ```
 
 ### lme for VABS norm stratification
@@ -151,19 +160,7 @@ for (i in (1:4)) {
   
   # saving
   lme2save = anova(resp$lme_model)
-  lme2save$`F value` = round(lme2save$`F value`, digits = 2)
-  lme2save$`DenDF` = round(lme2save$`DenDF`, digits = 2)
-  lme2save$`Sum Sq`= round(lme2save$`Sum Sq`, digits = 2)
-  lme2save$`Mean Sq` = round(lme2save$`Mean Sq`, digits = 2)
-  
-  for (j in 1:3){
-    if (lme2save[j,"Pr(>F)"]<= 0.001){
-      lme2save[j,"p-value_new"] = '<0.001'
-    }else if (lme2save[j,"Pr(>F)"]> 0.001){
-      #lme2save[j,"p-value_new"] = as.character(as.numeric(round(lme2save[j,"Pr(>F)"],digits = 3)),length= 5)}
-      lme2save[j,"p-value_new"] = paste("=",as.character(round(lme2save[j,"Pr(>F)"],digits = 3),sep = ""))}
-    
-  }
+ 
   
   #correct p value for multiple comparison
   for (a in 1:3){
@@ -175,22 +172,15 @@ for (i in (1:4)) {
     #print(p_adj_)
     lme2save[a,'p_adj_temp'] = p_adj_
   }
-  #change p-adj format to be readable in excel
-  #print(lme2save)
-  for (d in 1:3){
-    if (lme2save[d,"p_adj_temp"]<= 0.001){
-      lme2save[d,"p_adj"] = '<0.001'
-    }else if (lme2save[d,"p_adj_temp"]> 0.001){
-      lme2save[d,"p_adj"] = paste("=",as.character(round(lme2save[d,"p_adj_temp"],digits = 3),sep = ""))}
-    
-  }
   
-  lme_definitive_2save  = lme2save[,c("Sum Sq","Mean Sq","NumDF","DenDF","F value","p-value_new","p_adj")]
+  
+  
+  lme_definitive_2save  = lme2save[,c("Sum Sq","Mean Sq","NumDF","DenDF","F value","Pr(>F)","p_adj_temp")]
   colnames(lme_definitive_2save) = c("Sum Sq","Mean Sq","NumDF","DenDF","F value","p-value","p_adj")
   
   
-  write.csv(lme_definitive_2save,file.path(result_path,paste('ANOVA_lme_spagh2_UCSD_VABSnorm_MELS_',col2use,".csv")))
   
+  write.xlsx(lme_definitive_2save,file.path(result_path,'UCSD_MSEL_VABSnorm',paste('ANOVA_lme_spagh2_UCSD_VABSnorm_MELS_',col2use,".xlsx")))
 }
 ```  
 
@@ -246,19 +236,7 @@ for (i in (1:4)) {
     
     # saving 
     lme2save = anova(m_allgrps)
-    lme2save$`F value` = round(lme2save$`F value`, digits = 2)
-    lme2save$`DenDF` = round(lme2save$`DenDF`, digits = 2)
-    lme2save$`Sum Sq`= round(lme2save$`Sum Sq`, digits = 2)
-    lme2save$`Mean Sq` = round(lme2save$`Mean Sq`, digits = 2)
-    
-    for (j in 1:3){
-      if (lme2save[j,"Pr(>F)"]<= 0.001){
-        lme2save[j,"p-value_new"] = '<0.001'
-      }else if (lme2save[j,"Pr(>F)"]> 0.001){
-        lme2save[j,"p-value_new"] = paste("=",as.character(round(lme2save[j,"Pr(>F)"],digits = 3),sep = ""))}
-      
-    }
-    
+   
     #correct p value for multiple comparison
     for (a in 1:3){
       p = lme2save[a,"Pr(>F)"]
@@ -266,20 +244,13 @@ for (i in (1:4)) {
       lme2save[a,'p_adj_temp'] = p_adj_
     }
     
-    #change p-adj format to be readable in excel
-    for (d in 1:3){
-      if (lme2save[d,"p_adj_temp"]<= 0.001){
-        lme2save[d,"p_adj"] = '<0.001'
-      }else if (lme2save[d,"p_adj_temp"]> 0.001){
-        lme2save[d,"p_adj"] = paste("=",as.character(round(lme2save[d,"p_adj_temp"],digits = 3),sep = ""))}
-      
-    }
-    #print(lme2save)
+   
     #save the post-hoc lme complete
-    lm = lme2save[,c("Sum Sq","Mean Sq","NumDF","DenDF","F value","p-value_new","p_adj")]
+    lm = lme2save[,c("Sum Sq","Mean Sq","NumDF","DenDF","F value","Pr(>F)","p_adj_temp")]
     colnames(lm) = c("Sum Sq","Mean Sq","NumDF","DenDF","F value","p-value","p_adj")
     
-    write.csv(lm,file.path(result_path,"post_hoc",'MSEL_UCSD_VABSnorm',paste('Post_hoc_ANOVA_lme_spagh2_UCSD_VABSnorm_',col2use,"_",sub1,"_",sub2,".csv",sep='')))
+   
+    write.xlsx(lm,file.path(result_path,"post_hoc",'MSEL_UCSD_VABSnorm',paste('Post_hoc_ANOVA_lme_spagh2_UCSD_VABSnorm_',col2use,"_",sub1,"_",sub2,".xlsx",sep='')))
     
     #save in a unique table
     vect2save = c(col2use,sub1,sub2,as.list(as.vector(t(lm))))
@@ -287,10 +258,7 @@ for (i in (1:4)) {
   }
 }
 
-
-
-write.csv(ANOVA_post_hoc[2:length(ANOVA_post_hoc$col2use),],file.path(result_path,'Posthoc_USCD_VABSnorm_MSELlong.csv'))
-
+write.xlsx(ANOVA_post_hoc[2:length(ANOVA_post_hoc$col2use),],file.path(result_path,'Posthoc_USCD_VABSnorm_MSELlong.xlsx'))
 ```
 
 
@@ -343,7 +311,7 @@ for (i in 1:length(var2use)){
 }
 
 # save AIC_matrix
-# write.csv(AIC_matrix,file.path(result_path,'AIC_matrix_REVAL_VABSnorm.csv'))
+write.csv(AIC_matrix,file.path(result_path,'AIC_matrix_REVAL_VABSnorm.csv'))
 ```
 
 ### saving cluster labels to be plotted for umap
@@ -351,10 +319,10 @@ uncomment here if you want to save colusters labels for having some nice visuali
 ```{r, include=FALSE}
 #save for UMAP
 #col2save = c('subjectId','gender', 'vine_ComTotal_DomStd','vine_DlyTotal_DomStd','vine_SocTotal_DomStd',
-#             'vine_MtrTotal_DomStd','time',"cluster" ,"VABSnorms_cluster"  )
+#            'vine_MtrTotal_DomStd','time',"cluster" ,"VABSnorms_cluster"  )
 #data2save= data4normativemodel[data4normativemodel$time==1,col2save]
-#write.csv(data2save,file.path(result_path,'clusters4UMAP.csv'))
+#write.csv(data2save,file.path(result_path,'_USCD_VABSnorm_clusters4UMAP.csv'))
 
 # save for other things
-#write.csv(data4normativemodel,file.path(result_path,'uscd_4modelcluster_longitudinal.csv'))
+#write.csv(data4normativemodel,file.path(result_path,'UCSD_VABSnorm_longitudinal.csv'))
 ```

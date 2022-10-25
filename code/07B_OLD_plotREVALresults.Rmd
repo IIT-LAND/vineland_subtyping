@@ -1,0 +1,346 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+```{r, message=FALSE, warning=FALSE}
+work_dir = '/Users/vmandelli/OneDrive - Fondazione Istituto Italiano Tecnologia/vine_old_edition'
+library(gridExtra)
+library(ggplot2)
+library(reshape2)
+plot_path = file.path(work_dir,'plot')
+data_path = file.path(work_dir,'results')
+tidy_data_path = file.path(work_dir,'data','tidy','vineland_ed_corrected')
+results_path = file.path(work_dir,'results')
+code_path = file.path(work_dir,'code')
+source(file.path(code_path,"cohens_d.R")) 
+
+
+datafile = 'VABS_old_withcl_051022_withgridsearch.csv'
+data <- read.csv(file.path(results_path,datafile))
+data$age_years =  round(data$interview_age/12)
+```
+
+
+#change cluster labels in a more easy-to-read way
+```{r}
+
+# for 3 cluster solution
+  for (i in (1:length(data$cluster_domain))) {
+    if (data[i, 'cluster_domain'] == '0'){
+      data[i,'clust_dom'] = "high"
+    }
+    else if (data[i, 'cluster_domain'] == '1'){
+      data[i,'clust_dom'] = "low"
+    }
+    else if (data[i, 'cluster_domain'] == '2'){
+      data[i,'clust_dom'] = "very_low"
+      }
+  }
+#------------------------------------------------------------------------------------------------------------#
+# drop the low group
+#data=data[data$clust_dom_3sol=="high"|data$clust_dom_3sol=="low",]
+write.csv(table(data$clust_dom),file.path(results_path,'NDA_old_reval_cl_numerosity.csv'))
+```
+
+
+### run this cell if you want to run the subsequent analysis only on the high and low subtype
+```{r}
+# exlcude very_low subtype
+#data=data[data$clust_dom %in% c('high','low'),]
+```
+
+## print out some numbers
+```{r}
+print(paste('total sample size',length(data$subjectkey)))
+print(paste('total number in high gruop',length(data[data$clust_dom == 'high','subjectkey'] )))
+print(paste('total number in high gruop',length(data[data$clust_dom == 'low','subjectkey'] )))
+print(paste('total number in high gruop',length(data[data$clust_dom == 'very_low','subjectkey'] )))
+
+print(table(data$clust_dom,data$TR_TS))
+
+```
+
+## produce scatter plot for the input features - VABS domain standard scores
+```{r,message=FALSE, warning=FALSE}
+
+
+# define colors
+# pink = c('#980043',"#DD1C77","#C994C7","#E7E1Ef")
+# blue = c('#08519c',"#3182bd","#9ecae1","#deebf7")
+# green = c('#006d2c','#31a354','#a1d99b','#e5f5e0')
+# yellow = c('#ff9900','#ffcc33','#ffff00','#ffff99')
+pink = c('#980043',"#C994C7","#E7E1Ef")
+blue = c('#08519c',"#9ecae1","#deebf7")
+green = c('#006d2c','#a1d99b','#e5f5e0')
+yellow = c('#ff9900','#ffff00','#ffff99')
+col_list = list(pink,blue,green,yellow)
+
+#color = c("#FF9933","#3399CC","#009900","#CC0099") # old color
+
+# set some useful lists of variables
+dom_list = c('high','med','low')
+var_list = c('communicationdomain_totalb', 'livingskillsdomain_totalb', 'socializationdomain_totalb')
+title_list = c('communication', 'livingskills', 'socialization')
+
+# initialize some other useful variables
+title = title 
+data2use = data[data$TR_TS=="TR",]
+plt_tr <- list()
+
+
+# looping on VABS variables to 
+for (j in (1:3)){
+  #define varible, color to use and titels to the plots
+  var2use = var_list[j]
+  col_name = col_list[j]
+  color = col_list[[j]] 
+  title = title_list[j]
+  
+  p = ggplot(data = data2use, 
+             aes_string(x = 'clust_dom',
+                        y = var2use,
+                        color='clust_dom')) 
+  p = p + geom_jitter() + geom_boxplot(fill = NA, colour = "#000000", outlier.shape = NA)
+  p = p + scale_colour_manual(values = color)
+  p = p + guides(colour = FALSE)
+  p = p + xlab("") + ylab("")
+  p = p + ggtitle(title_list[j]) 
+  p = p + theme_bw() 
+  p = p + theme(plot.title = element_text(hjust = 0.5))
+  ## changed here
+  p = p + theme(axis.text.x = element_text(face="bold", size=10))
+  p = p + theme(axis.text.y = element_text(face="bold", size=10))
+  p = p + scale_y_continuous( limits=c(10, 120))
+  p = p + theme(axis.text=element_text(size=10),
+                axis.title=element_text(size=8,face="bold"))
+  
+  print(p)
+  # evantually save the plot
+  #ggsave(paste(plot_path,'/',db_type,'_total_',var2use,".pdf", sep=""))
+  plt_tr[[j]] = p
+}
+########################## TEST
+data2use = data[data$TR_TS=="TS",]
+plt_ts <- list()
+
+
+# looping on VABS variables to 
+for (j in (1:3)){
+  #define varible, color to use and titels to the plots
+  var2use = var_list[j]
+  col_name = col_list[j]
+  color = col_list[[j]] 
+  title = title_list[j]
+  
+  p = ggplot(data = data2use, 
+             aes_string(x = 'clust_dom',
+                        y = var2use,
+                        color='clust_dom')) 
+  p = p + geom_jitter() + geom_boxplot(fill = NA, colour = "#000000", outlier.shape = NA)
+  p = p + scale_colour_manual(values = color)
+  p = p + guides(colour = FALSE)
+  p = p + xlab("") + ylab("")
+  p = p + ggtitle(title_list[j]) 
+  p = p + theme_bw() 
+  p = p + theme(plot.title = element_text(hjust = 0.5))
+  ## changed here
+  p = p + theme(axis.text.x = element_text(face="bold", size=10))
+  p = p + theme(axis.text.y = element_text(face="bold", size=10))
+  p = p + scale_y_continuous( limits=c(10, 120))
+  p = p + theme(axis.text=element_text(size=10),
+                axis.title=element_text(size=8,face="bold"))
+  
+  print(p)
+  # evantually save the plot
+  #ggsave(paste(plot_path,'/',db_type,'_total_',var2use,".pdf", sep=""))
+  plt_ts[[j]] = p
+}
+
+```
+
+# bind together
+```{r}
+
+g = grid.arrange(
+  plt_tr[[1]],
+  plt_tr[[2]],
+  plt_tr[[3]],
+
+  plt_ts[[1]],
+  plt_ts[[2]],
+  plt_ts[[3]],
+ 
+  nrow = 2)
+g
+ggsave(file.path(plot_path,paste('OLD_VABS_description_withverylow_oriz.pdf',sep="")), g, width = 10 ,height = 5)
+```
+
+## plot REVAL stability plot
+```{r}
+reval_val = read.csv(file.path(results_path,"val_metric_for_plot_051022.csv"))
+reval_val$cat = 'validation'
+
+reval_tr = read.csv(file.path(results_path,"train_metric_for_plot_051022.csv"))
+reval_tr$cat = 'train'
+mat = rbind(reval_tr,reval_val)
+colors = c("#cc0000","#000099")
+# spaghetti plot
+gg.spaghetti_x<-ggplot(mat, aes (x = k, y =value , group = cat, color = cat))
+gg.spaghetti_x <-gg.spaghetti_x +geom_line() + geom_point()   +
+                                 geom_errorbar(aes(ymin= value - CI, ymax= value + CI), width = 0.1, size = 0.5) + 
+                                 theme(axis.text.x = element_text(size=10), axis.text.y = element_text(size=10)) +
+                                 scale_color_manual(values=colors)+theme_classic()
+                                  
+
+ggsave(file.path(plot_path,'REVAL_stability.pdf'),width = 6,height = 4)
+gg.spaghetti_x
+```
+
+
+# uncomment here if you want more information about sex and age distribution
+```{r, warning=FALSE,error=FALSE}
+#are there any differencesc in AGE at T1
+clsol_2use = 'clust_dom'
+color = c("#FF9933","#3399CC","#009900")
+### old color "#FF6666","#99CC66","#99FFFF","#E7E1Ef")
+                    
+data2plot = data
+#data2plot$clust_dom <- factor( data2plot$clust_dom,levels = c('high','med','low'));
+
+data2plot$sex <- factor( data2plot$sex,levels = c("F","M"))
+# age plot
+p = ggplot(data =data2plot ,aes_string(x = clsol_2use, y ='age_years', color=clsol_2use) )
+p = p + geom_jitter() + geom_boxplot(fill = NA, colour = "#000000", outlier.shape = NA)
+p = p + scale_colour_manual(values = color)
+p = p + guides(colour = FALSE)
+p = p + scale_colour_manual(values = color)
+p = p + xlab("") + ylab('months')
+p = p + ggtitle('age')
+p = p + theme_bw()
+p = p + theme(plot.title = element_text(size = 10, face = "bold",hjust = 0.5))
+p = p + theme(axis.text.x = element_text(face="bold", size=10))
+p = p + theme(axis.text.y = element_text(face="bold", size=10))
+#p = p + scale_y_continuous( limits=c(72,))
+#ggsave(paste(plot_path,'/NDAR',db_type,'_ageT1.pdf', sep=""))
+p
+# sex plot
+sex =ggplot(na.omit(subset(data2plot, select = c(sex,clust_dom))), aes(x= sex,  group=clust_dom)) + 
+    geom_bar(aes(y = ..prop.., fill = factor(..x..)), stat="count") +
+    geom_text(aes( label = scales::percent(..prop..),
+                   y= ..prop.. ), stat= "count", vjust = -.5) +
+    labs(y = "Percent",fill = "gender") +
+    facet_grid(~clust_dom) +
+    scale_y_continuous(labels = scales::percent)+ ylim(0,0.87)
+#sex = sex + ggtitle(paste("NDAR_",db_type,"VABS-cluster",sep=''))
+sex = sex + ggtitle('Gender distribution')
+sex = sex  + theme_bw()
+sex = sex  + theme(plot.title = element_text(size = 10, face = "bold",hjust = 0.5))
+sex = sex  + theme(axis.text.x = element_text(face="bold", size=10))
+sex = sex  + theme(axis.text.y = element_text(face="bold", size=10))
+sex
+#ggsave(file.path(plot_path,paste('NDAR',db_type,'_sex.pdf', sep="")))
+
+lay =rbind(c(1,1,2,2,2,2))
+
+#pdf(paste(plot_path,'/age_sex',db_type,'.pdf', sep=""))
+new_grid = grid.arrange(
+     p,sex,
+      layout_matrix = lay)
+
+#dev.off()
+new_grid
+ggsave(file.path(plot_path,'gender_age_old.pdf'),new_grid,width = 6,height = 4)
+
+
+### stats
+# gender
+gender_table =  table(data$sex,data$clust_dom)
+chisq <- chisq.test(t(gender_table))
+print(chisq)
+print(gender_table)
+# pairwise comparison
+sub_1_poss = c('high','high','low')
+sub_2_poss = c('low','very_low','very_low')
+gendet_table_sum =  as.data.frame(matrix(nrow=3,ncol=5))
+colnames(gendet_table_sum) = c( 'sub1','sub2','Xsquared','df','pvalue')
+for (d in 1:3){
+  list_=c(sub_1_poss[d],sub_2_poss[d])
+  subset_ = subset(data,data$clust_dom %in% list_)
+  subset_$clust_dom = factor(subset_$clust_dom, levels = list_)
+  gender_table_ = table(subset_$clust_dom,subset_$sex)
+  hisq <- chisq.test(t(gender_table_))
+  print(gender_table_)
+  print(hisq)
+  gendet_table_sum[d,'sub1']=sub_1_poss[d]
+  gendet_table_sum[d,'sub2']=sub_2_poss[d]
+  gendet_table_sum[d,'Xsquared']=hisq$statistic
+  gendet_table_sum[d,'df']=hisq$parameter
+  gendet_table_sum[d,'pvalue']=hisq$p.value
+}
+write.csv(gendet_table_sum,file.path(results_path,'NDA_gender_diff_tab.csv'))
+
+# age 
+#df = subset(data,data$TR_TS=="TS")
+#age_table = table(df$clust_dom,df$age_years)
+#write.csv(age_table,file.path(results_path,'NDA_age_distribution_agebyclusters_TS.csv'))
+
+# pairwise
+sub_1_poss = c('high','high','low')
+sub_2_poss = c('low','very_low','very_low')
+age_table_sum =  as.data.frame(matrix(nrow=3,ncol=7))
+colnames(age_table_sum) = c( 'sub1','sub2','tstat','df','pvalue',"mean_sub1","mean_sub2")
+for (d in 1:3){
+  x= subset(data,data$clust_dom ==sub_1_poss[d])
+  y= subset(data,data$clust_dom ==sub_2_poss[d])
+  t_res <- t.test(x[,"age_years"],y[,"age_years"])
+  print(t_res)
+  age_table_sum[d,'sub1']=sub_1_poss[d]
+  age_table_sum[d,'sub2']=sub_2_poss[d]
+  age_table_sum[d,'tstat']=t_res$statistic
+  age_table_sum[d,'df']=t_res$parameter
+  age_table_sum[d,'pvalue']=t_res$p.value
+  age_table_sum[d,'mean_sub1']=t_res$estimate[1]
+  age_table_sum[d,'mean_sub2']=t_res$estimate[2]
+}
+write.csv(age_table_sum,file.path(results_path,'NDA_age_diff_tab_old.csv'))
+
+summary_age_old = as.data.frame(matrix(nrow=4, ncol = 5))
+colnames(summary_age_old) = c("mean","sd","median","max","min")
+rownames(summary_age_old) = c('total','high','low','very_low')
+for (sub in c('high','low','very_low')){
+  summary_age_old[sub,'mean'] = mean(data[data$clust_dom==sub,'age_years'])
+  summary_age_old[sub,'sd'] = sd(data[data$clust_dom==sub,'age_years'])
+  summary_age_old[sub,'median'] = median(data[data$clust_dom==sub,'age_years'])
+  summary_age_old[sub,'max'] = max(data[data$clust_dom==sub,'age_years'])
+  summary_age_old[sub,'min'] = min(data[data$clust_dom==sub,'age_years'])
+}
+
+  summary_age_old['total','mean'] = mean(data$age_years)
+  summary_age_old['total','sd'] = sd(data$age_years)
+  summary_age_old['total','median'] = median(data$age_years)
+  summary_age_old['total','max'] = max(data$age_years)
+  summary_age_old['total','min'] = min(data$age_years)
+  
+write.csv(summary_age_old,file.path(results_path,'NDA_summary_age.csv')) 
+```
+
+## some info about cluster very low
+```{r}
+# cl_verylow = subset(data,data$clust_dom=='very_low')
+# hist(cl_verylow$ageyrs_round)
+# hist(cl_verylow$composite_totalb)
+# table(cl_verylow$collection_id)
+```
+
+# extract some information about the subjects
+```{r}
+# mean age
+print(mean(data$interview_age)/12)
+print(sd(data$interview_age)/12)
+print(max(data$interview_age)/12)
+
+# save sub_ids with collection_id
+data_subids = data[,c('subjectkey',"collection_id")]
+write.csv(data_subids,file.path(results_path,'subid_collectionid_NDAold.csv'))
+```
+

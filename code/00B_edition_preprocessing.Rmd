@@ -1,0 +1,257 @@
+---
+title: "00_edition_preprocessing"
+author: "Veronica Mandelli"
+date: "9/29/2022"
+output: html_document
+---
+in this script we are going to remove the variance of the NDA data due to the type of VABS edition/format used.
+
+### load libraries and set paths
+```{r}
+# load libraries
+library(gridExtra)
+library(ggplot2)
+library(reshape2)
+library(wesanderson)
+library(MetBrewer)
+
+# set paths
+work_dir = '/Users/vmandelli/OneDrive - Fondazione Istituto Italiano Tecnologia/vineland_proj_edition'
+plot_path = file.path(work_dir,'plots')
+data_path = file.path(work_dir,'results')
+tidy_data_path = file.path(work_dir,'data',"tidy",'nda')
+results_path = file.path(work_dir,'results')
+tidy_data_path_ucsd = file.path(work_dir,'data',"tidy",'ucsd')
+code_path = file.path(work_dir,'code','R')
+
+```
+### load data
+```{r}
+NDA_data_tr = read.csv(file.path(results_path,"NDA_P1_tr_041022.csv"), header=TRUE)
+NDA_data_tr$TR_TS = "tr"
+NDA_data_ts = read.csv(file.path(results_path,"NDA_P1_ts_041022.csv"), header=TRUE)
+NDA_data_ts$TR_TS = "ts"
+```
+### merge edition format
+```{r}
+# # load raw data
+# survey <- read.delim("~/OneDrive - Fondazione Istituto Italiano Tecnologia/vineland_proj_edition/data/raw/ndar/vinelandsurvey_200505.txt", header=TRUE)
+# survey = survey[2:length(survey$edition),]
+# survey$format = "survey"
+# interview <- read.delim("~/OneDrive - Fondazione Istituto Italiano Tecnologia/vineland_proj_edition/data/raw/ndar/vinelandparent_200503.txt", header=TRUE)
+# interview = interview[2:length(interview$edition),]
+# interview$format = "interview"
+# ed_3 <-read.delim("~/OneDrive - Fondazione Istituto Italiano Tecnologia/vineland_proj_edition/data/raw/ndar/vinland301.txt", header=TRUE)
+# ed_3 = ed_3[2:length(ed_3$edition),]
+# ed_3$format = "ed_3"
+# 
+# # merge 3 edtions raw data
+# col2merge = c("edition" ,"collection_id","subjectkey","interview_age" ,'format')
+# editions_merged = rbind(survey[,col2merge],interview[,col2merge],ed_3[,col2merge])
+# 
+# # merge edtion fot the train_set
+# NDA_data_tr_ed = merge(NDA_data_tr, editions_merged, by.x=c("subjectkey", "collection_id","interview_age"), by.y=c("subjectkey", "collection_id","interview_age"))
+# NDA_data_tr_ed = NDA_data_tr_ed[!duplicated(NDA_data_tr_ed), ]
+# 
+# # merge edtion fot the test_set
+# NDA_data_ts_ed = merge(NDA_data_ts, editions_merged, by.x=c("subjectkey", "collection_id","interview_age"), by.y=c("subjectkey", "collection_id","interview_age"))
+# NDA_data_ts_ed = NDA_data_ts_ed[!duplicated(NDA_data_ts_ed), ]
+```
+
+# check age_sex_format distribution in train and test
+```{r}
+library(wesanderson)
+library(ggplot2)
+color = wes_palette("IsleofDogs1")
+data2plot =  rbind(NDA_data_tr,NDA_data_ts)
+format =ggplot(na.omit(subset(data2plot, select = c(TR_TS,format))), aes(x= TR_TS,  group=format)) + 
+    geom_bar(aes(y = ..prop.., fill = factor(..x..)), stat="count") +
+    geom_text(aes( label = scales::percent(..prop..),
+                   y= ..prop.. ), stat= "count", vjust = -.5,size=2) +
+    labs(y = "Percent",fill = "format") +
+    facet_grid(~format) +
+    scale_y_continuous(labels = scales::percent)+ ylim(0,0.87) 
+format
+```
+
+# beta correction
+```{r,results='hide', warning= FALSE, message=FALSE}
+# effect of interest : VABS score
+# staff I want to remove : sex, interview_age, format
+data2use = NDA_data_tr 
+data2se_ts = NDA_data_ts
+cols2use = c ("communicationdomain_totalb","livingskillsdomain_totalb","socializationdomain_totalb",
+              "motorskillsdomain_totalb","composite_totalb")
+
+#change levels of the factors
+data2use$sex =  as.factor(data2use$sex)
+data2use$format =  factor(data2use$format,level = c('interview','survey','ed_3'))
+
+data2se_ts$sex =  as.factor(data2se_ts$sex)
+data2se_ts$format =  factor(data2se_ts$format,level = c('interview','survey','ed_3'))
+
+
+
+# for each column (4 VABS domain +  ABC composite)
+for (i in c(1:length(cols2use))){
+    y_var = cols2use[i]
+    lm_formula = as.formula(sprintf( "%s~ %s + %s + %s ", y_var ,'interview_age','sex','format')) #do model including all the possiblesourse of variance
+    fit  =  eval(substitute(lm(formula= lm_formula, data = data2use)))
+    
+    covname2use = c('formatsurvey','formated_3')      # only those factors I want to remove   
+    beta1 = fit$coefficients[covname2use, drop = FALSE]
+    beta1[is.na(beta1)] = 0
+    
+    full_model =  model.matrix(~0 + format, 
+                               data = data2use)
+    
+    colnames(full_model) = c('formatinterview','formatsurvey',"formated_3")
+    
+    col_name = paste('new_',y_var,sep='')
+    
+    # applocation of the model on the train set
+    data2use[,col_name] =  as.numeric(t(data2use[,y_var]) - beta1 %*% t(full_model[,covname2use]))
+    
+    # application of the model on the test set
+    full_model_test = model.matrix(~0 + format,
+                                   data = data2se_ts)
+    
+    colnames(full_model_test) = c('formatinterview','formatsurvey',"formated_3")
+    
+    data2se_ts[,col_name] = as.numeric(t(data2se_ts[,y_var]) - beta1 %*% t(full_model_test[,covname2use]))
+    #write.csv(beta1,file.path(results_path,paste('beta1',y_var,'.csv',sep='')))
+}
+
+
+# rename columns
+cols_name = c("subjectkey","ageyrs_round","interview_period","collection_id", "interview_age" ,
+ "edition","original_communicationdomain_totalb",
+"original_livingskillsdomain_totalb","original_socializationdomain_totalb",
+"original_motorskillsdomain_totalb", "original_composite_totalb","sex","countna",
+"format","TR_TS","communicationdomain_totalb", "livingskillsdomain_totalb",
+"socializationdomain_totalb","motorskillsdomain_totalb","composite_totalb")
+colnames(data2use) = cols_name
+colnames(data2se_ts) = cols_name
+
+```
+
+```{r}
+# save
+write.csv(data2use,file.path(tidy_data_path,'NDA_tr_format_corrected.csv'))
+write.csv(data2se_ts,file.path(tidy_data_path,'NDA_ts_format_corrected.csv'))
+```
+
+# some plots
+```{r}
+library(ggplot2)
+library(gridExtra)
+# Basic density
+# corrected data
+var_list = c("communicationdomain_totalb", "livingskillsdomain_totalb" , "socializationdomain_totalb","motorskillsdomain_totalb")
+
+i=0
+p_list=list()
+for (var in var_list){
+    i=i+1
+    p <- ggplot(data2se_ts, aes_string(x='format', y = var, color='format')) + 
+        geom_jitter() + geom_boxplot(fill = NA, colour = "#000000", outlier.shape = NA)
+    p_list[[i]]= p
+    
+}
+p
+
+# original data
+var_list = c("original_communicationdomain_totalb", "original_livingskillsdomain_totalb" , "original_socializationdomain_totalb",
+             "original_motorskillsdomain_totalb")
+
+p_list_original=list()
+i=0
+for (var in var_list){
+    i=i+1
+    p <- ggplot(data2se_ts, aes_string(x='format', y = var, color='format')) + 
+        geom_jitter() + geom_boxplot(fill = NA, colour = "#000000", outlier.shape = NA)
+    p_list_original[[i]]= p
+    
+}
+p
+library(patchwork)
+p_final_com = p_list[[1]]+p_list_original[[1]]
+p_final_com
+ggsave(file.path(plot_path,'correction__com_.pdf'),p_final_com,height = 4,width = 6)
+p_final_dly = p_list[[2]]+p_list_original[[2]]
+p_final_dly
+ggsave(file.path(plot_path,'correction__dly_.pdf'),p_final_dly,height = 4,width = 6)
+p_final_soc = p_list[[3]]+p_list_original[[3]]
+p_final_soc
+ggsave(file.path(plot_path,'correction__soc_.pdf'),p_final_soc,height = 4,width = 6)
+p_final_mot = p_list[[4]]+p_list_original[[4]]
+p_final_mot
+ggsave(file.path(plot_path,'correction__mot_.pdf'),p_final_mot,height = 4,width = 6)
+
+
+
+```
+
+# convert also UCSD dataset
+```{r}
+# load the data
+file = 'tidy_ucsd_long_asd_onlyT1.csv'
+all_ucsd = read.csv(file.path(tidy_data_path_ucsd,file))
+
+# merge the edition
+file = 'vineland_version_Data_sent_to_ML.csv'
+ucsd_edition = read.csv(file.path(tidy_data_path_ucsd,file))
+ucsd_edition$edition = ucsd_edition$Vineland.Version
+ucsd_edition$format = ucsd_edition$Vineland.Version
+ucsd_edition$format = gsub(2,"interview",ucsd_edition$format)
+ucsd_edition$format = gsub(3,"ed_3",ucsd_edition$format)
+
+#exclude subject with VINELAND 1
+merged_uscd = merge(all_ucsd,ucsd_edition[,c("SubjectId","edition","format")],by.x = "subjectid", by.y ="SubjectId", all.x = TRUE )
+# exclude subjects with edition 1
+data2use_ucsd = merged_uscd[merged_uscd$edition %in% c(2,3),]
+
+
+
+
+
+
+# correct the format
+data2stat = data2use_ucsd
+#change levels of the factors
+data2stat$format =  factor(data2stat$format,level = c('interview','survey','ed_3'))
+
+var_list = c ("communicationdomain_totalb","livingskillsdomain_totalb","socializationdomain_totalb",
+              "motorskillsdomain_totalb","composite_totalb")
+
+var_list_ucsd= c('vine_ComTotal_DomStd',
+             'vine_DlyTotal_DomStd',
+             'vine_SocTotal_DomStd',
+             'vine_MtrTotal_DomStd',
+             "vine_AdapBehav_DomStd" )
+
+covname2use = c('formatsurvey','formated_3') 
+i=0
+
+for (var in var_list){
+    i=i+1
+    var_uscd = var_list_ucsd[i]
+  #load the beta1 matrix
+  beta1 = read.csv(file.path(results_path,paste("beta1",var,".csv",sep='')),row.names=1)
+  
+  
+  
+  #create the full model
+  full_model_test = model.matrix(~0 + format,
+                                   data = data2stat)
+    
+    colnames(full_model_test) = c('formatinterview','formatsurvey',"formated_3")
+    col_name = paste("new_",var_uscd, sep='')
+    data2stat[,col_name] = as.numeric(t(data2stat[,var_uscd]) - t(beta1) %*% t(full_model_test[,covname2use]))
+    
+}
+
+print(length(unique(data2stat$subjectkey)))
+write.csv(data2stat,file.path(tidy_data_path_ucsd,"UCSD_ASD_T1_4reval_edition_corrected.csv"))
+```
+

@@ -1,0 +1,208 @@
+---
+title: "Young_old_match"
+author: "Veronica Mandelli"
+date: "7/25/2022"
+output: html_document
+---
+```{r,warning=FALSE}
+work_dir = '/Users/vmandelli/OneDrive - Fondazione Istituto Italiano Tecnologia/vine_old_edition'
+library(gridExtra)
+library(ggplot2)
+library(reshape2)
+library(wesanderson)
+library(dplyr)
+plot_path = file.path(work_dir,'plot')
+
+tidy_data_path_vine_young = file.path(work_dir,'data','tidy','vineland_young')
+tidy_data_path = file.path(work_dir,'data','tidy','vineland_210722')
+results_path = file.path(work_dir,'results')
+code_path = file.path(work_dir,'code')
+ 
+
+# get data young
+file  = "VABS_withcluster_edition_041022.csv"
+data_young_ = read.csv(file.path(tidy_data_path_vine_young,file))
+
+
+# get data old
+datafile = 'VABS_old_withcl_051022_withgridsearch.csv'
+data_old <- read.csv(file.path(results_path,datafile))
+
+
+# get list of commun subject
+datafile = 'sublist_VABS_old_VABS_young.csv'
+sublist_tab <- read.csv(file.path(tidy_data_path,datafile))
+sublist =  sublist_tab$subjectkey
+```
+
+### create VABSnorms and Hybrid subtype on young_dataset
+```{r}
+data_young = data_young_#data_young[!duplicated(data_young), ]
+
+####################################
+#change young cluster REVAL labels
+  for (i in (1:length(data_young$cluster_domain))) {
+    if (data_young[i, 'cluster_domain'] == 1){
+      data_young[i,'clust_dom_young'] = "high"
+    }
+    else if (data_young[i, 'cluster_domain'] == 2){
+      data_young[i,'clust_dom_young'] = "low"
+    }
+    else if (data_young[i, 'cluster_domain'] == 0){
+      data_young[i,'clust_dom_young'] = "med"
+      }
+  }
+
+#################### VABSnorm
+
+for (i in 1:length(data_young$subjectkey)){
+  if (!is.na(data_young[i,'composite_totalb'])){
+  if (data_young[i,'composite_totalb']>=85){
+    data_young[i,'VABSnorm_cluster']='high'
+  }
+  else if (data_young[i,'composite_totalb']<85 & data_young[i,'composite_totalb']>=70){
+    data_young[i,'VABSnorm_cluster']='med'
+  }
+  else if (data_young[i,'composite_totalb']<70){
+    data_young[i,'VABSnorm_cluster']='low'
+  }
+  }
+}
+
+# create hybrid_cluser
+data_young$hybrid_cluster <- paste("R",data_young$clust_dom_young,"_V", data_young$VABSnorm_cluster, sep="")
+
+data_young$interview_age_young =data_young$interview_age
+```
+
+## merge the datasets
+```{r}
+# get only commun subjects
+
+data_young_commun = data_young[data_young$subjectkey %in% sublist,]
+
+ccol2use =  c('subjectkey','interview_age_young','clust_dom_young',"VABSnorm_cluster" ,"hybrid_cluster")
+data_old_commun = data_old[data_old$subjectkey %in% sublist,]
+# merge
+datacommun = merge(data_old_commun,data_young_commun[,ccol2use], by='subjectkey')
+
+datacommun$clust_dom_young = factor(datacommun$clust_dom_young,levels=c("low","med","high"))
+
+
+####################################
+#change OLD cluster labels 
+
+for (i in (1:length(datacommun$cluster_domain))) {
+    if (datacommun[i, 'cluster_domain'] == '0'){
+      datacommun[i,'clust_dom'] = "high"
+    }
+    else if (datacommun[i, 'cluster_domain'] == '1'){
+      datacommun[i,'clust_dom'] = "low"
+    }
+    else if (datacommun[i, 'cluster_domain'] == '2'){
+      datacommun[i,'clust_dom'] = "very_low"
+      }
+  }
+
+datacommun$clust_dom_young = factor(datacommun$clust_dom_young,levels=c("low","med","high"))
+datacommun$VABSnorm_cluster = factor(datacommun$VABSnorm_cluster,levels=c("low","med","high"))
+datacommun$hybrid_cluster = factor(datacommun$hybrid_cluster,levels=c("Rhigh_Vhigh","Rhigh_Vmed", "Rmed_Vmed","Rmed_Vlow", "Rlow_Vlow"))
+datacommun$clust_dom = factor(datacommun$clust_dom,levels=c("very_low","low","high"))
+
+
+
+library(ggalluvial)
+color = wes_palette("IsleofDogs1")
+cl_type_list = c('clust_dom_young',"VABSnorm_cluster" ,"hybrid_cluster")
+
+for (cl_type in cl_type_list){
+  if (cl_type %in% c('clust_dom_young',"VABSnorm_cluster")){
+    color = color = c(wes_palette("IsleofDogs1")[3],wes_palette("IsleofDogs1")[2],wes_palette("IsleofDogs1")[1])
+  }
+  else{color =c("#f0be3d", "#04a3bd", "#da7901", "#247d3f", "#20235b")}
+
+  # produce the plots
+  all = ggplot(datacommun,
+       aes_string(
+           axis1 = cl_type, axis2 = 'clust_dom')) +
+  geom_alluvium(aes_string(fill = cl_type),
+                width = 0, knot.pos = 0, reverse = FALSE) +
+  guides(fill = FALSE) +
+  geom_stratum(width = 1/8, reverse = FALSE) +
+   geom_text(stat = "stratum", aes(label = after_stat(stratum)),
+             reverse = FALSE,size=2) +
+  scale_x_continuous(breaks = 1:2, labels = c('clust_young','clust_old'))  +
+  scale_fill_manual(values = color) + theme_bw() 
+  print(all)
+  print(cl_type)
+  all_table = table(datacommun[,cl_type],datacommun$clust_dom)
+  print(all_table)
+  write.csv(all_table,file.path(results_path,paste('alltable',cl_type,'.csv')))
+
+ggsave(file.path(plot_path,paste('alluvial_young_old',cl_type,'.pdf',sep="")), all, width = 10 ,height = 7)
+#print(table(datacommun$clust_dom,datacommun$clust_dom_young))
+}
+```
+# summary
+```{r}
+print('126 subject with ASD were included in the original VABS subtyping project (<72 months).
+Those subjects belong to 3 subtype')
+print(table(datacommun$clust_dom_young))
+print('later in the development (>72) they will move to the older subtyping system like that')
+print(table(datacommun$clust_dom_young,datacommun$clust_dom))
+```
+
+126 subject with ASD were included in the original VABS subtyping project (<72 months).
+Those subjects belong to 3 subtype
+
+## compute the percentage
+```{r}
+table(datacommun$clust_dom_young,datacommun$clust_dom)
+
+for (sub in c('high','med','low')){
+  subset_=subset(datacommun,datacommun$clust_dom_young == sub)
+  print(sub)
+  print(prop.table(table(subset_$clust_dom)))
+  write.csv(prop.table(table(subset_$clust_dom)),file.path(results_path,paste('proportion_table_',sub,'.csv')))
+}
+prop.table(table(datacommun$clust_dom_young,datacommun$clust_dom))
+write.csv(prop.table(table(datacommun$clust_dom_young,datacommun$clust_dom)),file.path(results_path,
+                                                                                       'proportion_table_summarycsv'))
+```
+
+```{r}
+table(datacommun$clust_dom_young,datacommun$clust_dom)
+sub_list = c('high',"med","low")
+p_list=list()
+for (i in 1:3){
+  data2use = datacommun[datacommun$clust_dom_young==sub_list[i],]
+  p = ggplot(data = data2use, 
+             aes_string(x = 'clust_dom',
+                        y = 'interview_age_young',
+                        color='clust_dom')) +
+   geom_jitter() + geom_boxplot(fill = NA, colour = "#000000", outlier.shape = NA)+
+  scale_colour_manual(values = color)+
+  guides(colour = FALSE)+
+  xlab("old stratification") + ylab("interview_age for young_stratification")+ggtitle(paste('young_cluster',sub_list[i]))
+  p_list[[i]]=p
+  print(p)
+}
+
+g = grid.arrange(
+  p_list[[1]],
+  p_list[[2]],
+  p_list[[3]],nrow=1)
+
+
+```
+
+##proportion table
+```{r}
+for (sub in c("high","med","low")){
+    subset_ = subset(datacommun,datacommun$clust_dom_young ==sub)
+    print(sub)
+    print(prop.table(table(subset_$clust_dom_young,subset_$clust_dom)))
+    
+}
+```
+

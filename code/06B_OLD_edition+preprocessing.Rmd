@@ -1,0 +1,167 @@
+---
+title: "01_clean_data"
+author: "Veronica Mandelli"
+date: "2/21/2022"
+output: html_document
+---
+```{r}
+mainpath = "/Users/vmandelli/OneDrive - Fondazione Istituto Italiano Tecnologia/vine_old_edition"
+datapath_tidy = file.path(mainpath,"data","tidy","vineland_210722")
+results_path  = file.path(mainpath,'results')
+plot_path = file.path(mainpath,'plot')
+filename = "VABS_ASD_older_than72_1timepoint_20220726.csv"
+VABS = read.csv(file.path(datapath_tidy,filename))
+
+# how many unique subjects with mels
+length(unique(VABS$subjectkey))
+rownames(VABS)=VABS$subjectkey
+
+#tr
+file = 'Train_old_edition.csv'
+tr = read.csv(file.path(results_path,file))
+tr$format =  tr$vabs_type
+tr$format  = gsub("parent", "interview", tr$format)
+tr$format  = gsub("3", "ed_3", tr$format)
+tr$TR_TS = 'tr'
+#ts
+file = 'Test_old_edition.csv'
+ts = read.csv(file.path(results_path,file))
+ts$format =  ts$vabs_type
+ts$format  = gsub("parent", "interview", ts$format)
+ts$format  = gsub("3", "ed_3", ts$format)
+ts$TR_TS = 'ts'
+```
+
+```{r}
+# check age_sex_format distribution in train and test
+library(wesanderson)
+library(ggplot2)
+color = wes_palette("IsleofDogs1")
+data2plot =  rbind(tr,ts)
+format =ggplot(na.omit(subset(data2plot, select = c(TR_TS,format))), aes(x= TR_TS,  group=format)) + 
+    geom_bar(aes(y = ..prop.., fill = factor(..x..)), stat="count") +
+    geom_text(aes( label = scales::percent(..prop..),
+                   y= ..prop.. ), stat= "count", vjust = -.5,size=2) +
+    labs(y = "Percent",fill = "format") +
+    facet_grid(~format) +
+    scale_y_continuous(labels = scales::percent)+ ylim(0,0.87) 
+format
+```
+# beta correction
+```{r,results='hide', warning= FALSE, message=FALSE}
+# effect of interest : VABS score
+# staff I want to remove : sex, interview_age, format
+data2use_tr = tr 
+data2use_ts = ts
+cols2use = c ("communicationdomain_totalb","livingskillsdomain_totalb","socializationdomain_totalb",
+              "composite_totalb")
+
+#change levels of the factors
+data2use_tr$sex =  as.factor(data2use_tr$sex)
+data2use_tr$format =  factor(data2use_tr$format,level = c('interview','survey','ed_3'))
+
+data2use_ts$sex =  as.factor(data2use_ts$sex)
+data2use_ts$format =  factor(data2use_ts$format,level = c('interview','survey','ed_3'))
+
+
+
+# for each column (4 VABS domain +  ABC composite)
+for (i in c(1:length(cols2use))){
+    y_var = cols2use[i]
+    lm_formula = as.formula(sprintf( "%s~ %s + %s + %s ", y_var ,'interview_age','sex','format')) #do model including all the possiblesourse of variance
+    fit  =  eval(substitute(lm(formula= lm_formula, data = data2use_tr)))
+    
+    covname2use = c('formatsurvey','formated_3')      # only those factors I want to remove   
+    beta1 = fit$coefficients[covname2use, drop = FALSE]
+    beta1[is.na(beta1)] = 0
+    
+    full_model =  model.matrix(~0 + format, 
+                               data = data2use_tr)
+    
+    colnames(full_model) = c('formatinterview','formatsurvey',"formated_3")
+    
+    col_name = paste('new_',y_var,sep='')
+    
+    # applocation of the model on the train set
+    data2use_tr[,col_name] =  as.numeric(t(data2use_tr[,y_var]) - beta1 %*% t(full_model[,covname2use]))
+    
+    # application of the model on the test set
+    full_model_test = model.matrix(~0 + format,
+                                   data = data2use_ts)
+    
+    colnames(full_model_test) = c('formatinterview','formatsurvey',"formated_3")
+    
+    data2use_ts[,col_name] = as.numeric(t(data2use_ts[,y_var]) - beta1 %*% t(full_model_test[,covname2use]))
+    write.csv(beta1,file.path(results_path,paste('beta1',y_var,'_old.csv',sep='')))
+}
+
+
+# rename columns
+cols_name = c("subjectkey","collection_id", "src_subject_id","sex","interview_age" ,"interview_date",
+"original_communicationdomain_totalb",
+"original_livingskillsdomain_totalb","original_socializationdomain_totalb",
+"original_motorskillsdomain_totalb", "original_composite_totalb","collection_id.1",
+"edition" , "vabs_type" , "miss",   "age_round", "quantile_age", "format",
+"TR_TS","communicationdomain_totalb", "livingskillsdomain_totalb",
+"socializationdomain_totalb","composite_totalb")
+colnames(data2use_tr) = cols_name
+colnames(data2use_ts) = cols_name
+```
+
+```{r}
+# save
+tidy_data_path= file.path(mainpath,"data","tidy",'vineland_ed_corrected')
+write.csv(data2use_tr,file.path(tidy_data_path,'NDA_tr_format_corrected_old.csv'))
+write.csv(data2use_ts,file.path(tidy_data_path,'NDA_ts_format_corrected_old.csv'))
+```
+
+# some plots
+```{r}
+library(ggplot2)
+library(gridExtra)
+# Basic density
+# corrected data
+var_list = c("communicationdomain_totalb", "livingskillsdomain_totalb" , "socializationdomain_totalb")
+
+i=0
+p_list=list()
+for (var in var_list){
+    i=i+1
+    p <- ggplot(data2use_tr, aes_string(x='format', y = var, color='format')) + 
+        geom_jitter() + geom_boxplot(fill = NA, colour = "#000000", outlier.shape = NA)+ ylim(0,150)
+    p_list[[i]]= p
+    
+}
+p
+
+# original data
+var_list = c("original_communicationdomain_totalb", "original_livingskillsdomain_totalb" , "original_socializationdomain_totalb" 
+             )
+
+p_list_original=list()
+i=0
+for (var in var_list){
+    i=i+1
+    p <- ggplot(data2use_tr, aes_string(x='format', y = var, color='format')) + 
+        geom_jitter() + geom_boxplot(fill = NA, colour = "#000000", outlier.shape = NA)+ ylim(0,150)
+    p_list_original[[i]]= p
+    
+}
+
+p
+library(patchwork)
+p_final_com = p_list_original[[1]] + p_list[[1]]
+p_final_com
+ggsave(file.path(plot_path,'correction__com_.pdf'),p_final_com,height = 4,width = 6)
+p_final_dly = p_list_original[[2]]+ p_list[[2]]
+p_final_dly
+ggsave(file.path(plot_path,'correction__dly_.pdf'),p_final_dly,height = 4,width = 6)
+p_final_soc = p_list_original[[3]]+ p_list[[3]]
+p_final_soc
+ggsave(file.path(plot_path,'correction__soc_.pdf'),p_final_soc,height = 4,width = 6)
+
+
+
+```
+
+
